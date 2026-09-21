@@ -1,0 +1,8 @@
+# Append under [all] in /boot/firmware/config.txt
+dtparam=i2c_arm=on
+dtparam=i2c_arm_baudrate=400000
+dtparam=spi=on
+camera_auto_detect=0
+dtoverlay=imx477
+dtoverlay=disable-bt
+# Zero 2 W CSI is the 22-pin connector. Do not use the 15-pin Pi 4 cable.

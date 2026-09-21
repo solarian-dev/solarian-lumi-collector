@@ -1,0 +1,45 @@
+[project]
+name = "solarian-lumi-collector"
+version = "0.1.0"
+description = "Lumi handheld collector — light UMI, Raspberry Pi Zero 2 W"
+authors = [
+    {name = "Solarian Contributors", email = "solarian@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "av>=12.0.0",
+    "numpy>=1.26.0",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+pi = [
+    "gpiozero>=2.0",
+    "lgpio>=0.2",
+    "smbus2>=0.4.3",
+    "spidev>=3.6",
+    "picamera2>=0.3.23",
+    "luma.lcd>=2.11",
+    "luma.core>=2.4",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+lumi-collector = "lumi_collector.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["lumi_collector*"]
+
+[tool.setuptools.package-data]
+lumi_collector = ["data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

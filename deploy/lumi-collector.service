@@ -1,0 +1,16 @@
+[Unit]
+Description=Lumi handheld collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/lumi
+ExecStart=/home/pi/lumi/venv/bin/lumi-collector --config /home/pi/lumi/collector.yaml
+Restart=on-failure
+RestartSec=2
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

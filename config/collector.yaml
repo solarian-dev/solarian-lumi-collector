@@ -1,0 +1,49 @@
+# Handheld Lumi collector. Paths are on the Pi SD card.
+data_dir: /home/pi/lumi
+camera_serial: ""          # empty = derive from /proc/cpuinfo
+primarykey_url: https://app.primarykey.ai
+setup_port: 8080
+
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bitrate: 10000000        # VideoCore H.264 ceiling is ~1080p30
+  lores_size: [240, 240]
+
+imu:
+  driver: bmi270           # bmi270 | mpu6050 | mock
+  address: 104             # 0x68
+  rate_hz: 200
+  # Sensor XYZ -> GoPro ZXY storage order. Identity means the breakout
+  # is mounted with +X right, +Y down the lens, +Z toward the scene.
+  acc_map: [2, 0, 1]       # out Z,X,Y from sensor XYZ
+  gyr_map: [2, 0, 1]
+  acc_sign: [1, 1, 1]
+  gyr_sign: [1, 1, 1]
+
+buttons:
+  key1: 21                 # record start/stop
+  key2: 20                 # delete last / delete selected
+  key3: 16                 # settings (short) / shutdown (2s)
+  joy_up: 6
+  joy_down: 19
+  joy_left: 5
+  joy_right: 26
+  joy_press: 13
+  long_press_s: 2.0
+
+display:
+  width: 240
+  height: 240
+  spi_port: 0
+  spi_device: 0
+  gpio_dc: 25
+  gpio_rst: 27
+  gpio_bl: 24
+  rotate: 0
+
+power:
+  fuel_gauge_address: 54   # 0x36 MAX17040 on UPS-Lite
+  charger_gpio: 4
+  shutdown_cmd: ["sudo", "shutdown", "-h", "now"]
