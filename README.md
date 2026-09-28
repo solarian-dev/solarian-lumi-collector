@@ -2,7 +2,7 @@
 
 A GoPro Hero 10–shaped gripper recorder: one button starts an episode, the
 file on the SD card is an MP4 with H.264, audio, and a `gpmd` IMU track so
-[`universal_manipulation_interface`](https://github.com/real-stanford/universal_manipulation_interface)
+`[universal_manipulation_interface](https://github.com/real-stanford/universal_manipulation_interface)`
 `00_process_videos.py` → `01_extract_gopro_imu.py` can consume it unchanged.
 
 ## OS
@@ -18,36 +18,38 @@ and `systemd` restarts the appliance after a crash.
 Do not use the original Pi Zero (single-core ARM11). Do not use Ubuntu,
 DietPi, or the 32-bit Lite image — you would be re-fighting the camera stack.
 
-| | |
-| --- | --- |
-| Imager (recommended) | https://www.raspberrypi.com/software/ |
-| OS list | https://www.raspberrypi.com/software/operating-systems/ |
+
+|                        |                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Imager (recommended)   | [https://www.raspberrypi.com/software/](https://www.raspberrypi.com/software/)                                                                                                                |
+| OS list                | [https://www.raspberrypi.com/software/operating-systems/](https://www.raspberrypi.com/software/operating-systems/)                                                                            |
 | This Lite 64-bit image | [2026-09-15-raspios-trixie-arm64-lite.img.xz](https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-2026-09-15/2026-09-15-raspios-trixie-arm64-lite.img.xz) (516 MB) |
-| Image folder | https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-2026-09-15/ |
-| SHA256 | `cdf4f3bfac35ae947b46e4e767f935453810549779ac3290e05a6754aee627e5` |
+| Image folder           | [https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-2026-09-15/](https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-2026-09-15/)      |
+| SHA256                 | `cdf4f3bfac35ae947b46e4e767f935453810549779ac3290e05a6754aee627e5`                                                                                                                            |
+
 
 Compatible with Pi Zero 2 W. Use a **16 GB or larger** microSD (Class 10 / A1).
 A newer `raspios_lite_arm64-*` folder at
-https://downloads.raspberrypi.org/raspios_lite_arm64/images/ is fine — pick
+[https://downloads.raspberrypi.org/raspios_lite_arm64/images/](https://downloads.raspberrypi.org/raspios_lite_arm64/images/) is fine — pick
 the latest `*-raspios-trixie-arm64-lite.img.xz`, not Desktop or Full.
 
 ### Flash the card (Raspberry Pi Imager)
 
 1. Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/) on
-   the Mac or PC that has the card reader.
+  the Mac or PC that has the card reader.
 2. Insert the microSD card.
 3. In Imager:
-   - **Raspberry Pi Device** → `Raspberry Pi Zero 2 W`
-   - **Operating System** → `Raspberry Pi OS (other)` →
-     `Raspberry Pi OS Lite (64-bit)`
-   - **Storage** → the microSD card
+  - **Raspberry Pi Device** → `Raspberry Pi Zero 2 W`
+  - **Operating System** → `Raspberry Pi OS (other)` →
+  `Raspberry Pi OS Lite (64-bit)`
+  - **Storage** → the microSD card
 4. Click **Next**, then **Edit Settings** (do this *before* writing):
-   - **General**: hostname `lumi-collector`, username `pi`, set a password
-   - **General**: your 2.4 GHz Wi-Fi SSID and password (Zero 2 W has no 5 GHz)
-   - **Services**: enable SSH (password or a public key)
-   - **Options**: leave eject-on-finish on
+  - **General**: hostname `lumi-collector`, username `pi`, set a password
+  - **General**: your 2.4 GHz Wi-Fi SSID and password (Zero 2 W has no 5 GHz)
+  - **Services**: enable SSH (password or a public key)
+  - **Options**: leave eject-on-finish on
 5. Save, confirm you want to apply OS customisation, then **Yes** to erase
-   the card. Wait until Imager says you can remove it.
+  the card. Wait until Imager says you can remove it.
 
 If you downloaded the `.img.xz` yourself instead of using the Imager catalog:
 **Operating System** → `Use custom` → select
@@ -63,7 +65,10 @@ computer on the same Wi-Fi:
 ssh pi@lumi-collector.local
 # or: ssh pi@<the-ip-the-router-gave-it>
 
-git clone <this-repo> ~/solarian-lumi-collector
+sudo apt update && sudo apt upgrade -y
+sudo apt install git -y
+
+git clone git@github.com:solarian-dev/solarian-lumi-collector.git ~/solarian-lumi-collector
 cd ~/solarian-lumi-collector
 sudo bash deploy/setup.sh
 sudo reboot
@@ -79,29 +84,35 @@ on a phone and sign into PrimaryKey.
 ~/lumi/venv/bin/lumi-collector --mock --config ~/lumi/collector.yaml
 ```
 
+
+
 ## Hardware
 
-| Role | Part | Notes |
-| --- | --- | --- |
-| Compute | Raspberry Pi Zero 2 W **with header** | CSI-2, 802.11n, hardware H.264 |
-| Camera | Arducam IMX477 HQ + CS fisheye | Same sensor you already run on the robot |
-| Display / keys | Waveshare 1.3" LCD HAT (ST7789, 240×240) | 3 buttons + joystick |
-| IMU | Bosch BMI270 @ 200 Hz | Same family as the Hero 9/10 BMI260 |
-| Power | UPS-Lite 1000 mAh (pogo, underside) | Charge on the UPS micro-USB, not the Pi PWR jack |
+
+| Role           | Part                                     | Notes                                            |
+| -------------- | ---------------------------------------- | ------------------------------------------------ |
+| Compute        | Raspberry Pi Zero 2 W **with header**    | CSI-2, 802.11n, hardware H.264                   |
+| Camera         | Arducam IMX477 HQ + CS fisheye           | Same sensor you already run on the robot         |
+| Display / keys | Waveshare 1.3" LCD HAT (ST7789, 240×240) | 3 buttons + joystick                             |
+| IMU            | [HiLetgo GY-521 MPU-6050](https://a.co/d/07B4Yt1c) @ 200 Hz | 6-axis, I2C `0x68`. Noisier than a Hero BMI260 |
+| Power          | UPS-Lite 1000 mAh (pogo, underside)      | Charge on the UPS micro-USB, not the Pi PWR jack |
+
 
 Stack, bottom to top: **UPS-Lite → Zero 2 W → LCD HAT**. The camera hangs off
 the **22-pin** CSI flex (Pi Zero is not the 15-pin Pi 4 cable). Tap I2C for the
 IMU from a 40-pin **stacking header** — the LCD HAT covers the GPIO otherwise.
 
 ```
-IMU  VIN → header 3V3 (pin 1)
-IMU  GND → header GND (pin 9)
-IMU  SDA → GPIO2     (pin 3)
-IMU  SCL → GPIO3     (pin 5)
+GY-521  VCC → header 3V3 (pin 1)
+GY-521  GND → header GND (pin 9)
+GY-521  SDA → GPIO2      (pin 3)
+GY-521  SCL → GPIO3      (pin 5)
 ```
 
-UPS-Lite already sits on that same I2C bus (MAX17040 at `0x36`). BMI270 is
-`0x68`. No address clash.
+Leave `AD0`, `XDA`, `XCL`, and `INT` open. `AD0` has an internal pulldown, so the
+address is already `0x68`. Power `VCC` from the Pi's 3V3 pin, not 5V.
+The UPS-Lite fuel gauge is already on this I2C bus (MAX17040 at `0x36`). The
+MPU-6050 at `0x68` does not clash with it.
 
 ![Hardware wiring and the Python modules that run on the Pi](docs/architecture.png)
 
@@ -109,14 +120,16 @@ Regenerate the poster with `python docs/render_architecture.py`.
 
 ### Buttons
 
-| Control | GPIO | Function |
-| --- | --- | --- |
-| KEY1 | 21 | Start / stop recording |
-| KEY2 | 20 | Delete last (home) or delete selected (library) |
-| KEY3 short | 16 | Settings / back |
-| KEY3 hold 2 s | 16 | `shutdown -h now` |
-| UPS slide switch | — | Hard power |
-| Joystick | 6/19/5/26/13 | Library, select, play |
+
+| Control          | GPIO         | Function                                        |
+| ---------------- | ------------ | ----------------------------------------------- |
+| KEY1             | 21           | Start / stop recording                          |
+| KEY2             | 20           | Delete last (home) or delete selected (library) |
+| KEY3 short       | 16           | Settings / back                                 |
+| KEY3 hold 2 s    | 16           | `shutdown -h now`                               |
+| UPS slide switch | —            | Hard power                                      |
+| Joystick         | 6/19/5/26/13 | Library, select, play                           |
+
 
 Sign-in is not typed on the joystick. After boot, open
 `http://<pi-ip>:8080` on a phone and log into PrimaryKey. The JWT stays on the
@@ -129,7 +142,7 @@ UMI does not decode "a GoPro file" as a brand. It needs:
 1. `raw_videos/*.MP4` named `GX01NNNN.MP4`
 2. H.264 video + an audio track
 3. A `gpmd` timed-metadata track (`handler_name=GoPro MET`) with ACCL @ m/s²
-   and GYRO @ rad/s, stored ZXY, ~200 Hz
+  and GYRO @ rad/s, stored ZXY, ~200 Hz
 4. `creation_time` + `timecode` on the video stream (PyAV)
 5. `QuickTime:CameraSerialNumber` (exiftool), used by `00_process_videos.py`
 
@@ -139,11 +152,15 @@ each file so a botched mux is still recoverable.
 Honest limits versus a real Hero 10 Black:
 
 - VideoCore encode is **1080p30**, not 1080p60 / 2.7K. SLAM still runs; you
-  lose temporal resolution.
+lose temporal resolution.
 - There is **no microphone**. The AAC track is silence so the container shape
-  matches. Add an I2S MEMS mic later if you care about audio.
+matches. Add an I2S MEMS mic later if you care about audio.
 - 1000 mAh is about **30–45 minutes** of 1080p + Wi-Fi. Fine for a session,
-  not a day. Step up the cell before you step up the board.
+not a day. Step up the cell before you step up the board.
+- The IMU is a GY-521 MPU-6050, not the Hero's BMI260. The `gpmd` track has
+the same units and rate; the samples are noisier.
+
+
 
 ## Cloud
 

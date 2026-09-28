@@ -33,22 +33,6 @@ sudo -u pi /home/pi/lumi/venv/bin/pip install -e "$SRC[pi]"
 install -m 0644 -o pi -g pi "$SRC/config/collector.yaml" /home/pi/lumi/collector.yaml
 install -m 0644 "$SRC/deploy/lumi-collector.service" /etc/systemd/system/lumi-collector.service
 
-# Official BMI270 config blob (BSD-3-Clause, Bosch Sensortec).
-LUMI_SRC="$SRC" python3 - <<'PY'
-from pathlib import Path
-import os, re, urllib.request
-url = "https://raw.githubusercontent.com/boschsensortec/BMI270_SensorAPI/master/bmi270.c"
-text = urllib.request.urlopen(url, timeout=30).read().decode("latin1")
-match = re.search(r"bmi270_config_file\[\] = \{([^}]+)\}", text, re.S)
-if not match:
-    raise SystemExit("could not parse bmi270_config_file")
-nums = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{1,2})", match.group(1))]
-dest = Path(os.environ["LUMI_SRC"]) / "lumi_collector/data/bmi270_config.bin"
-dest.parent.mkdir(parents=True, exist_ok=True)
-dest.write_bytes(bytes(nums))
-print(f"wrote {dest} ({len(nums)} bytes)")
-PY
-
 systemctl daemon-reload
 systemctl enable lumi-collector.service
 

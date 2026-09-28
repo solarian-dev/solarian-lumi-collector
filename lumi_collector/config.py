@@ -18,7 +18,7 @@ class VideoConfig:
 
 @dataclass(frozen=True)
 class ImuConfig:
-    driver: str = "bmi270"
+    driver: str = "mpu6050"
     address: int = 0x68
     rate_hz: int = 200
     acc_map: tuple[int, int, int] = (2, 0, 1)
@@ -121,7 +121,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             lores_size=(int(lores[0]), int(lores[1])),
         ),
         imu=ImuConfig(
-            driver=str(imu_raw.get("driver") or "bmi270"),
+            driver=str(imu_raw.get("driver") or "mpu6050"),
             address=int(imu_raw.get("address") or 0x68),
             rate_hz=int(imu_raw.get("rate_hz") or 200),
             acc_map=_tuple3(imu_raw.get("acc_map"), (2, 0, 1)),

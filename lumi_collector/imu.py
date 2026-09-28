@@ -60,7 +60,11 @@ class MockImu:
 
 
 class Mpu6050Imu:
-    """InvenSense MPU-6050 at 200 Hz. Quality is below a GoPro BMI260."""
+    """GY-521 breakout: InvenSense MPU-6050, polled at 200 Hz.
+
+    ±8 g (4096 LSB/g) and ±2000 °/s (16.4 LSB per °/s). The GPMF track still
+    stores acceleration in m/s² and gyro in rad/s.
+    """
 
     PWR_MGMT_1 = 0x6B
     SMPLRT_DIV = 0x19
@@ -68,6 +72,8 @@ class Mpu6050Imu:
     GYRO_CONFIG = 0x1B
     ACCEL_CONFIG = 0x1C
     ACCEL_XOUT_H = 0x3B
+    WHO_AM_I = 0x75
+    EXPECTED_ID = 0x68
 
     def __init__(self, cfg: ImuConfig, bus=None):
         self.cfg = cfg
@@ -79,7 +85,12 @@ class Mpu6050Imu:
             from smbus2 import SMBus
 
             self._bus = SMBus(1)
-        self._bus.write_byte_data(self.cfg.address, self.PWR_MGMT_1, 0x00)
+        # 0x01 selects the X-gyro PLL. The chip needs ~100 ms after leaving sleep.
+        self._bus.write_byte_data(self.cfg.address, self.PWR_MGMT_1, 0x01)
+        time.sleep(0.1)
+        chip = self._bus.read_byte_data(self.cfg.address, self.WHO_AM_I)
+        if chip != self.EXPECTED_ID:
+            raise RuntimeError(f"MPU-6050 chip id 0x{chip:02x}, expected 0x68")
         self._bus.write_byte_data(self.cfg.address, self.SMPLRT_DIV, 4)  # 1 kHz / (4+1) = 200
         self._bus.write_byte_data(self.cfg.address, self.CONFIG, 0x03)
         self._bus.write_byte_data(self.cfg.address, self.GYRO_CONFIG, 0x18)  # ±2000 dps

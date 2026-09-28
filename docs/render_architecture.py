@@ -25,6 +25,7 @@ WIRE = {
     "csi": (40, 40, 44),
     "spi": (40, 120, 200),
     "5v": (200, 40, 40),
+    "3v3": (40, 90, 200),
     "gnd": (30, 30, 30),
     "sda": (40, 160, 70),
     "scl": (230, 170, 30),
@@ -166,14 +167,14 @@ def main() -> None:
     wire(d, (196, 600), (196, 500), WIRE["gnd"], 3)
     label(d, (188, 560), "5V pogo", size=11, fill=RED, anchor="mm")
 
-    # --- BMI270 ---
+    # --- GY-521 MPU-6050 ---
     pcb(d, (300, 620, 430, 720), fill=(36, 90, 160))
-    label(d, (365, 658), "BMI270", size=14, bold=True, fill=WHITE, anchor="mm")
-    label(d, (365, 678), "200 Hz IMU", size=12, fill=(210, 220, 230), anchor="mm")
+    label(d, (365, 658), "MPU-6050", size=14, bold=True, fill=WHITE, anchor="mm")
+    label(d, (365, 678), "GY-521  200 Hz", size=12, fill=(210, 220, 230), anchor="mm")
     label(d, (300, 732), "I2C 0x68  ·  stacking header", size=11, fill=MUTED)
     wire(d, (320, 620), (220, 500), WIRE["sda"], 3)
     wire(d, (340, 620), (236, 500), WIRE["scl"], 3)
-    wire(d, (360, 620), (252, 500), WIRE["5v"], 2)
+    wire(d, (360, 620), (252, 500), WIRE["3v3"], 2)
     wire(d, (380, 620), (268, 500), WIRE["gnd"], 2)
     label(d, (300, 580), "3V3  GND  SDA pin 3  SCL pin 5", size=11, fill=MUTED)
 

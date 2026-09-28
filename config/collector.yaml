@@ -12,7 +12,7 @@ video:
   lores_size: [240, 240]
 
 imu:
-  driver: bmi270           # bmi270 | mpu6050 | mock
+  driver: mpu6050          # mpu6050 | mock
   address: 104             # 0x68
   rate_hz: 200
   # Sensor XYZ -> GoPro ZXY storage order. Identity means the breakout
