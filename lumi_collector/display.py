@@ -25,6 +25,7 @@ class Hud:
     rec_s: float
     setup_url: str
     wifi: str
+    play_s: float = 0.0
 
 
 def _font(size: int):
@@ -54,6 +55,18 @@ def _fmt_size(n: int) -> str:
 
 CANVAS = (240, 240)
 LOADING_TEXT = "Loading Solarian LUMI..."
+HOME_MENU = (
+    ("Key1 / Push", "record ep"),
+    ("Key2 / Down", "delete last ep"),
+    ("Up", "List episodes"),
+    ("Key3 / Left", "Settings"),
+)
+LIBRARY_MENU = (
+    ("Key1", "select"),
+    ("Key2", "delete"),
+    ("Push", "open"),
+    ("Key3 / Left", "back"),
+)
 
 
 def _battery_color(pct: float | None):
@@ -81,6 +94,18 @@ def _draw_battery(draw, x, y, pct, charging, color) -> int:
         fill_w = max(2, round(inner_w * min(pct, 100) / 100.0))
         draw.rectangle((x + 3, y + 3, x + 3 + fill_w, y + body_h - 3), fill=color)
     return x + body_w + 10
+
+
+def _draw_play(draw, x, y) -> None:
+    # The black copy sits one pixel down so the triangle stays visible on the frame.
+    for dx, dy, fill in ((1, 1, (0, 0, 0)), (0, 0, FG)):
+        ox, oy = x + dx, y + dy
+        draw.polygon([(ox, oy), (ox, oy + 20), (ox + 18, oy + 10)], fill=fill)
+
+
+def _hint(draw, x, y, key: str, action: str, font) -> None:
+    draw.text((x, y), key, font=font, fill=FG)
+    draw.text((x + draw.textlength(key + " ", font=font), y), action, font=font, fill=MUTED)
 
 
 def loading_frame(*, size: tuple[int, int] = CANVAS) -> Image.Image:
@@ -142,32 +167,34 @@ def render(
     d.text((CANVAS[0] - 6, 3), f"{hud.free_gb:.1f} GB", font=small, fill=MUTED, anchor="ra")
 
     if state.screen is Screen.HOME:
-        d.text((8, 32), "LUMI collector", font=title, fill=FG)
+        d.text((CANVAS[0] // 2, 28), "Solarian LUMI", font=title, fill=GREEN, anchor="mt")
         last = episodes[-1] if episodes else None
         if last is None:
-            d.text((8, 60), "no episodes", font=body, fill=MUTED)
+            d.text((8, 54), "no episodes", font=body, fill=MUTED)
         else:
-            d.text((8, 60), last.filename, font=body, fill=FG)
+            d.text((8, 54), last.filename, font=body, fill=FG)
             d.text(
-                (8, 80),
+                (8, 76),
                 f"{_fmt_s(last.duration_s)}  {_fmt_size(last.size_bytes)}",
                 font=small,
                 fill=MUTED,
             )
-        d.text((8, 160), "KEY1  record", font=small, fill=MUTED)
-        d.text((8, 178), "KEY2  delete last", font=small, fill=MUTED)
-        d.text((8, 196), "stick  library", font=small, fill=MUTED)
         if state.status:
-            d.text((8, 214), state.status, font=small, fill=AMBER)
+            d.text((CANVAS[0] - 8, 76), state.status, font=small, fill=AMBER, anchor="ra")
+        y = 108
+        for key, action in HOME_MENU:
+            _hint(d, 6, y, key, action, small)
+            y += 28
 
     elif state.screen is Screen.RECORDING:
         d.ellipse((12, 36, 28, 52), fill=RED)
         d.text((36, 34), "REC", font=title, fill=RED)
         d.text((12, 70), _fmt_s(hud.rec_s), font=_font(36), fill=FG)
-        d.text((12, 130), "KEY1 stop", font=body, fill=MUTED)
         if preview is not None:
             thumb = preview.resize((96, 96))
             img.paste(thumb, (132, 120))
+        _hint(d, 8, 196, "Key1 / Push", "stop", small)
+        _hint(d, 8, 216, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.LIBRARY:
         d.text((8, 28), "episodes", font=title, fill=FG)
@@ -176,16 +203,22 @@ def render(
         else:
             top = max(0, state.cursor - 2)
             for i, ep in enumerate(episodes[top : top + 5]):
-                y = 50 + i * 26
+                y = 48 + i * 20
                 idx = top + i
                 mark = "*" if ep.filename in state.selected else " "
                 line = f"{mark}{ep.filename[4:8]} {_fmt_s(ep.duration_s)}"
                 fill = FG if idx == state.cursor else MUTED
                 if idx == state.cursor:
-                    d.rectangle((4, y - 2, CANVAS[0] - 4, y + 20), fill=CARD)
-                d.text((8, y), line, font=body, fill=fill)
-        d.text((8, 188), "right enters video", font=small, fill=MUTED)
-        d.text((8, 206), "KEY3 / left back", font=small, fill=MUTED)
+                    d.rectangle((4, y - 1, CANVAS[0] - 4, y + 17), fill=CARD)
+                d.text((8, y), line, font=small, fill=fill, anchor="la")
+                stamp = ep.started_at.replace("T", " ")
+                if len(stamp) >= 16:
+                    when = f"{stamp[5:10]} {stamp[11:16]}"
+                    d.text((CANVAS[0] - 8, y), when, font=small, fill=fill, anchor="ra")
+        y = 156
+        for key, action in LIBRARY_MENU:
+            _hint(d, 8, y, key, action, small)
+            y += 20
 
     elif state.screen is Screen.EPISODE:
         ep = episodes[state.cursor] if episodes else None
@@ -195,19 +228,22 @@ def render(
             d.text((8, 80), ep.started_at.replace("T", " ")[:19], font=small, fill=MUTED)
             d.text((8, 100), f"{_fmt_s(ep.duration_s)}   {_fmt_size(ep.size_bytes)}", font=body, fill=FG)
             d.text((8, 128), "uploaded" if ep.uploaded else "local", font=small, fill=GREEN if ep.uploaded else AMBER)
-        d.text((8, 180), "press  upload", font=small, fill=MUTED)
-        d.text((8, 198), "right  play", font=small, fill=MUTED)
-        d.text((8, 216), "KEY2   delete", font=small, fill=MUTED)
+        _hint(d, 8, 164, "Push", "play", small)
+        _hint(d, 8, 182, "Up", "upload", small)
+        _hint(d, 8, 200, "Key2", "delete", small)
+        _hint(d, 8, 218, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.CONFIRM_DELETE:
         d.text((8, 40), "delete?", font=title, fill=RED)
         for i, name in enumerate(state.pending_delete[:6]):
             d.text((8, 72 + i * 18), name, font=small, fill=FG)
-        d.text((8, 200), "press yes   KEY3 no", font=small, fill=MUTED)
+        _hint(d, 8, 198, "Key2", "delete", small)
+        _hint(d, 8, 216, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.UPLOAD:
         d.text((8, 40), "uploading", font=title, fill=FG)
         d.text((8, 80), state.status or "sending…", font=body, fill=AMBER)
+        _hint(d, 8, 214, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.SETTINGS:
         d.text((8, 28), "settings", font=title, fill=FG)
@@ -235,10 +271,9 @@ def render(
             else:
                 value_fill = MUTED
             d.text((8, y + 18), value, font=small, fill=value_fill)
-        hint = "right  live view" if state.settings_cursor == 2 else ""
-        if hint:
-            d.text((8, 196), hint, font=small, fill=MUTED)
-        d.text((8, 214), "KEY3 back", font=small, fill=MUTED)
+        if state.settings_cursor == 2:
+            _hint(d, 8, 196, "Right", "live view", small)
+        _hint(d, 8, 214, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.IMU:
         d.text((8, 28), "IMU", font=title, fill=FG)
@@ -251,13 +286,18 @@ def render(
             d.text((8, 122), _fmt_xyz(state.imu_gyr, 2), font=body, fill=FG)
             if state.imu_temp is not None:
                 d.text((8, 158), f"{state.imu_temp:.0f} C", font=small, fill=MUTED)
-        d.text((8, 214), "KEY3 back", font=small, fill=MUTED)
+        _hint(d, 8, 214, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.PLAYBACK:
-        d.text((8, 28), "play", font=title, fill=FG)
         if preview is not None:
-            img.paste(preview.resize((240, 180)), (0, 50))
-        d.text((8, 216), "KEY3 back", font=small, fill=MUTED)
+            img.paste(preview.resize((CANVAS[0], CANVAS[1] - 22)), (0, 22))
+        _draw_play(d, 12, 36)
+        clock = _fmt_s(hud.play_s)
+        timer_font = _font(36)
+        d.text((13, 71), clock, font=timer_font, fill=(0, 0, 0))
+        d.text((12, 70), clock, font=timer_font, fill=FG)
+        d.rectangle((0, 208, CANVAS[0], CANVAS[1]), fill=CARD)
+        _hint(d, 8, 216, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.SHUTDOWN:
         d.text((40, 100), "shutting down", font=title, fill=AMBER)

@@ -15,6 +15,10 @@ def test_record_toggle():
     assert handle(state, Event.KEY1, names()) == [Action.STOP_RECORD]
     handle(state, Event.RECORD_SEALED, names())
     assert state.screen is Screen.HOME
+    handle(state, Event.KEY1, names())
+    assert handle(state, Event.JOY_PRESS, names()) == [Action.STOP_RECORD]
+    handle(state, Event.RECORD_SEALED, names())
+    assert state.screen is Screen.HOME
     assert handle(state, Event.KEY1, names()) == [Action.START_RECORD]
     assert state.screen is Screen.RECORDING
 
@@ -24,18 +28,65 @@ def test_delete_last_from_home_needs_confirm():
     assert handle(state, Event.KEY2, names()) == []
     assert state.screen is Screen.CONFIRM_DELETE
     assert state.pending_delete == ["GX010002.MP4"]
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.DELETE]
+    assert handle(state, Event.JOY_LEFT, names()) == []
+    assert state.screen is Screen.HOME
+    assert state.pending_delete == []
+    handle(state, Event.JOY_DOWN, names())
+    assert state.pending_delete == ["GX010002.MP4"]
+    assert handle(state, Event.JOY_PRESS, names()) == []
+    assert state.screen is Screen.CONFIRM_DELETE
+    assert handle(state, Event.KEY2, names()) == [Action.DELETE]
+    assert state.pending_delete == ["GX010002.MP4"]
+    assert state.screen is Screen.HOME
 
 
-def test_library_select_and_upload():
+def test_home_menu():
     state = UiState()
-    handle(state, Event.JOY_PRESS, names())
+    assert handle(state, Event.JOY_PRESS, names()) == [Action.START_RECORD]
+    assert state.screen is Screen.RECORDING
+    assert handle(state, Event.KEY3, names()) == [Action.STOP_RECORD]
+
+    state = UiState()
+    handle(state, Event.JOY_UP, names())
     assert state.screen is Screen.LIBRARY
-    handle(state, Event.JOY_PRESS, names())
+    assert state.cursor == 1
+
+    state = UiState()
+    handle(state, Event.JOY_LEFT, names())
+    assert state.screen is Screen.SETTINGS
+    handle(state, Event.JOY_LEFT, names())
+    assert state.screen is Screen.HOME
+
+
+def test_library_select_enter_and_upload():
+    state = UiState()
+    handle(state, Event.JOY_UP, names())
+    assert state.screen is Screen.LIBRARY
+    assert handle(state, Event.KEY1, names()) == []
+    assert state.screen is Screen.LIBRARY
     assert "GX010002.MP4" in state.selected
-    handle(state, Event.JOY_RIGHT, names())
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.UPLOAD]
+    handle(state, Event.JOY_PRESS, names())
+    assert state.screen is Screen.EPISODE
+    assert handle(state, Event.JOY_PRESS, names()) == [Action.PLAY]
+    assert state.screen is Screen.PLAYBACK
+    handle(state, Event.KEY3, names())
+    assert state.screen is Screen.EPISODE
+    assert handle(state, Event.JOY_UP, names()) == [Action.UPLOAD]
     assert state.screen is Screen.UPLOAD
+    handle(state, Event.JOY_LEFT, names())
+    assert state.screen is Screen.LIBRARY
+
+
+def test_library_delete_and_back():
+    state = UiState()
+    handle(state, Event.JOY_UP, names())
+    handle(state, Event.KEY2, names())
+    assert state.screen is Screen.CONFIRM_DELETE
+    assert state.pending_delete == ["GX010002.MP4"]
+    handle(state, Event.KEY3, names())
+    assert state.screen is Screen.LIBRARY
+    handle(state, Event.KEY3, names())
+    assert state.screen is Screen.HOME
 
 
 def test_long_press_is_shutdown():
@@ -46,7 +97,7 @@ def test_long_press_is_shutdown():
 
 def test_long_press_off_home_is_back():
     state = UiState()
-    handle(state, Event.JOY_PRESS, names())
+    handle(state, Event.JOY_UP, names())
     assert state.screen is Screen.LIBRARY
     assert handle(state, Event.KEY3_LONG, names()) == []
     assert state.screen is Screen.HOME

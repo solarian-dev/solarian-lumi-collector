@@ -17,6 +17,7 @@ class ClipPlayer:
 
     def __init__(self):
         self.frame: Image.Image | None = None
+        self.position_s = 0.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gen = 0
@@ -32,6 +33,7 @@ class ClipPlayer:
         self._gen += 1
         gen = self._gen
         self.frame = None
+        self.position_s = 0.0
         self._thread = threading.Thread(
             target=self._loop, args=(path, gen, self._stop), daemon=True
         )
@@ -68,6 +70,7 @@ class ClipPlayer:
                         origin = stamp
                     image = frame.reformat(width=160, height=120, format="rgb24").to_image()
                     if gen == self._gen:
+                        self.position_s = max(0.0, stamp - origin)
                         self.frame = image
                     delay = start + (stamp - origin) - time.monotonic()
                     if delay > 0 and stop.wait(delay):

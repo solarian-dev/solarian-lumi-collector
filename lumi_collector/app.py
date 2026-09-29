@@ -211,6 +211,7 @@ class CollectorApp:
             charging=status.charging,
             free_gb=free_gb(self.cfg.data_dir),
             rec_s=self.state.rec_s,
+            play_s=self.player.position_s,
             setup_url=f"http://{ip}:{self.cfg.setup_port}",
             wifi=ip,
         )

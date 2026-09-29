@@ -54,6 +54,7 @@ class UiState:
     username: str = ""
     project: str = ""
     settings_cursor: int = 0
+    confirm_from: Screen = Screen.HOME
     imu_acc: tuple[float, float, float] | None = None
     imu_gyr: tuple[float, float, float] | None = None
     imu_temp: float | None = None
@@ -63,6 +64,12 @@ class UiState:
             self.cursor = 0
             return
         self.cursor = max(0, min(self.cursor, n_items - 1))
+
+
+def _ask_delete(state: UiState, targets: list[str]) -> None:
+    state.confirm_from = state.screen
+    state.pending_delete = list(targets)
+    state.screen = Screen.CONFIRM_DELETE
 
 
 def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
@@ -77,7 +84,7 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
         event = Event.KEY3
 
     if state.screen is Screen.RECORDING:
-        if event is Event.KEY1:
+        if event in {Event.KEY1, Event.JOY_PRESS, Event.KEY3, Event.JOY_LEFT}:
             return [Action.STOP_RECORD]
         if event is Event.RECORD_SEALED:
             state.screen = Screen.HOME
@@ -85,21 +92,19 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
             state.status = "saved"
         return []
 
-    if event is Event.KEY1 and state.screen in {Screen.HOME, Screen.LIBRARY, Screen.SETTINGS}:
-        state.screen = Screen.RECORDING
-        state.rec_s = 0.0
-        state.status = ""
-        return [Action.START_RECORD]
-
     if state.screen is Screen.HOME:
-        if event is Event.KEY2 and filenames:
-            state.pending_delete = [filenames[-1]]
-            state.screen = Screen.CONFIRM_DELETE
-        elif event is Event.KEY3:
-            state.screen = Screen.SETTINGS
-        elif event is Event.JOY_PRESS or event is Event.JOY_RIGHT:
+        if event is Event.KEY1 or event is Event.JOY_PRESS:
+            state.screen = Screen.RECORDING
+            state.rec_s = 0.0
+            state.status = ""
+            return [Action.START_RECORD]
+        if event in {Event.KEY2, Event.JOY_DOWN} and filenames:
+            _ask_delete(state, [filenames[-1]])
+        elif event is Event.JOY_UP:
             state.screen = Screen.LIBRARY
             state.cursor = max(0, n - 1)
+        elif event in {Event.KEY3, Event.JOY_LEFT}:
+            state.screen = Screen.SETTINGS
         return []
 
     if state.screen is Screen.LIBRARY:
@@ -107,48 +112,47 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
             state.cursor = max(0, state.cursor - 1)
         elif event is Event.JOY_DOWN:
             state.cursor = min(max(n - 1, 0), state.cursor + 1)
-        elif event is Event.JOY_PRESS and filenames:
+        elif event is Event.KEY1 and filenames:
             name = filenames[state.cursor]
             if name in state.selected:
                 state.selected.discard(name)
             else:
                 state.selected.add(name)
-        elif event is Event.JOY_RIGHT and filenames:
+        elif event is Event.JOY_PRESS and filenames:
             state.screen = Screen.EPISODE
         elif event is Event.KEY2:
             targets = sorted(state.selected) if state.selected else (
                 [filenames[state.cursor]] if filenames else []
             )
             if targets:
-                state.pending_delete = targets
-                state.screen = Screen.CONFIRM_DELETE
-        elif event is Event.JOY_LEFT or event is Event.KEY3:
+                _ask_delete(state, targets)
+        elif event in {Event.JOY_LEFT, Event.KEY3}:
             state.screen = Screen.HOME
         return []
 
     if state.screen is Screen.EPISODE:
-        if event is Event.JOY_LEFT or event is Event.KEY3:
+        if event in {Event.JOY_LEFT, Event.KEY3}:
             state.screen = Screen.LIBRARY
         elif event is Event.KEY2 and filenames:
-            state.pending_delete = [filenames[state.cursor]]
-            state.screen = Screen.CONFIRM_DELETE
+            _ask_delete(state, [filenames[state.cursor]])
         elif event is Event.JOY_PRESS and filenames:
-            state.screen = Screen.UPLOAD
-            return [Action.UPLOAD]
-        elif event is Event.JOY_RIGHT and filenames:
             state.screen = Screen.PLAYBACK
             return [Action.PLAY]
+        elif event is Event.JOY_UP and filenames:
+            state.screen = Screen.UPLOAD
+            return [Action.UPLOAD]
         return []
 
     if state.screen is Screen.CONFIRM_DELETE:
-        if event is Event.JOY_PRESS or event is Event.KEY2:
+        if event is Event.KEY2:
             state.selected.difference_update(state.pending_delete)
-            state.screen = Screen.LIBRARY
+            # CollectorApp reads pending_delete to unlink the files.
+            state.screen = Screen.HOME if state.confirm_from is Screen.HOME else Screen.LIBRARY
             state.status = "deleted"
             return [Action.DELETE]
-        if event is Event.KEY3 or event is Event.JOY_LEFT:
+        if event in {Event.KEY3, Event.JOY_LEFT}:
             state.pending_delete = []
-            state.screen = Screen.LIBRARY
+            state.screen = state.confirm_from
         return []
 
     if state.screen is Screen.UPLOAD:
@@ -159,7 +163,7 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
         elif event is Event.UPLOAD_ERROR:
             state.status = "upload failed"
             state.screen = Screen.LIBRARY
-        elif event is Event.KEY3:
+        elif event in {Event.KEY3, Event.JOY_LEFT}:
             state.screen = Screen.LIBRARY
         return []
 

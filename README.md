@@ -126,12 +126,16 @@ Regenerate the poster with `python docs/render_architecture.py`.
 
 | Control          | GPIO         | Function                                        |
 | ---------------- | ------------ | ----------------------------------------------- |
-| KEY1             | 21           | Start / stop recording                          |
-| KEY2             | 20           | Delete last (home) or delete selected (library) |
-| KEY3 short       | 16           | Settings / back                                 |
-| KEY3 hold 2 s    | 16           | `shutdown -h now`                               |
+| KEY1             | 21           | Home: record. List: select. Recording: stop     |
+| KEY2             | 20           | Home: delete last. List: delete                 |
+| KEY3 short       | 16           | Home: settings. Every other screen: back        |
+| KEY3 hold 2 s    | 16           | `shutdown -h now` (from home)                   |
 | UPS slide switch | —            | Hard power                                      |
-| Joystick         | 6/19/5/26/13 | Library, select, play                           |
+| Push             | 13           | Home: record. List: open episode. Episode: play. Recording: stop |
+| Stick up         | 6            | Home: list episodes. List: move up. Episode: upload |
+| Stick down       | 19           | Home: delete last. List: move down              |
+| Stick left       | 5            | Home: settings. Every other screen: back        |
+| Stick right      | 26           | Settings: open the IMU view                     |
 
 
 Sign-in is not typed on the joystick. After boot, open
