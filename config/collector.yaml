@@ -5,11 +5,16 @@ primarykey_url: https://app.primarykey.ai
 setup_port: 8080
 
 video:
-  width: 1920
+  # Full 2028x1520 readout, scaled to 4:3. The H.264 block cannot encode 2028x1520.
+  width: 1440
   height: 1080
   fps: 30
-  bitrate: 10000000        # VideoCore H.264 ceiling is ~1080p30
-  lores_size: [240, 240]
+  bitrate: 10000000
+  lores_size: [320, 240]
+  sensor_width: 2028
+  sensor_height: 1520
+  sensor_bit_depth: 12
+  tuning_file: /home/pi/imx477_fisheye.json
 
 imu:
   driver: mpu6050          # mpu6050 | mock
@@ -33,9 +38,9 @@ buttons:
   joy_press: 13
   long_press_s: 2.0
 
-display:
-  width: 240
-  height: 240
+display:                   # Waveshare 1.44" LCD HAT, ST7735S
+  width: 128
+  height: 128
   spi_port: 0
   spi_device: 0
   gpio_dc: 25
@@ -44,6 +49,6 @@ display:
   rotate: 0
 
 power:
-  fuel_gauge_address: 54   # 0x36 MAX17040 on UPS-Lite
+  fuel_gauge_address: 67   # 0x43 INA219; percent from cell voltage 3.0–4.2 V
   charger_gpio: 4
   shutdown_cmd: ["sudo", "shutdown", "-h", "now"]

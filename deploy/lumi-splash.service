@@ -1,0 +1,17 @@
+[Unit]
+Description=Lumi loading screen
+# The collector waits for sysinit (~20s). SPI is up immediately, and the
+# glass is white until this frame is sent.
+DefaultDependencies=no
+After=dev-spidev0.0.device
+Before=lumi-collector.service sysinit.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+ExecStart=/home/pi/lumi/venv/bin/python -m lumi_collector.splash
+
+[Install]
+WantedBy=sysinit.target

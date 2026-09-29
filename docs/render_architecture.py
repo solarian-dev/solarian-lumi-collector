@@ -130,7 +130,7 @@ def main() -> None:
         rounded(d, (444, 150 + i * 28, 490, 170 + i * 28), (50, 54, 60), radius=4)
         label(d, (496, 160 + i * 28), name, size=11, fill=MUTED, anchor="lm")
     d.ellipse((312, 210, 328, 226), outline=INK, width=2)
-    label(d, (400, 278), "Waveshare 1.3\"  240×240", size=12, fill=MUTED, anchor="mt")
+    label(d, (400, 278), "Waveshare 1.44\"  128×128", size=12, fill=MUTED, anchor="mt")
 
     # --- Pi Zero ---
     pcb(d, (160, 360, 470, 500), fill=(52, 150, 80))

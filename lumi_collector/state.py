@@ -15,6 +15,7 @@ class Screen(str, Enum):
     UPLOAD = "upload"
     SETTINGS = "settings"
     PLAYBACK = "playback"
+    IMU = "imu"
     SHUTDOWN = "shutdown"
 
 
@@ -52,6 +53,10 @@ class UiState:
     rec_s: float = 0.0
     username: str = ""
     project: str = ""
+    settings_cursor: int = 0
+    imu_acc: tuple[float, float, float] | None = None
+    imu_gyr: tuple[float, float, float] | None = None
+    imu_temp: float | None = None
 
     def clamp(self, n_items: int) -> None:
         if n_items <= 0:
@@ -66,8 +71,10 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
     state.clamp(n)
 
     if event is Event.KEY3_LONG:
-        state.screen = Screen.SHUTDOWN
-        return [Action.SHUTDOWN]
+        if state.screen is Screen.HOME:
+            state.screen = Screen.SHUTDOWN
+            return [Action.SHUTDOWN]
+        event = Event.KEY3
 
     if state.screen is Screen.RECORDING:
         if event is Event.KEY1:
@@ -162,8 +169,19 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
         return []
 
     if state.screen is Screen.SETTINGS:
-        if event is Event.KEY3 or event is Event.JOY_LEFT:
+        if event is Event.JOY_UP:
+            state.settings_cursor = max(0, state.settings_cursor - 1)
+        elif event is Event.JOY_DOWN:
+            state.settings_cursor = min(2, state.settings_cursor + 1)
+        elif event in {Event.JOY_RIGHT, Event.JOY_PRESS} and state.settings_cursor == 2:
+            state.screen = Screen.IMU
+        elif event is Event.KEY3 or event is Event.JOY_LEFT:
             state.screen = Screen.HOME
+        return []
+
+    if state.screen is Screen.IMU:
+        if event is Event.KEY3 or event is Event.JOY_LEFT:
+            state.screen = Screen.SETTINGS
         return []
 
     return []

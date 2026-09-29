@@ -1,4 +1,4 @@
-"""Local setup page. Typing a password on a 240x240 joystick is not viable."""
+"""Local setup page. Typing a password on a 128x128 joystick is not viable."""
 
 from __future__ import annotations
 

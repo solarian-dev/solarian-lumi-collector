@@ -75,9 +75,11 @@ sudo reboot
 ```
 
 `setup.sh` enables I2C, SPI, and the IMX477 overlay, installs the venv with
-`--system-site-packages` (so `picamera2` works), and enables
-`lumi-collector.service`. After reboot, open `http://lumi-collector.local:8080`
-on a phone and sign into PrimaryKey.
+`--system-site-packages` (so `picamera2` works), enables
+`lumi-collector.service`, and shares `/home/pi` over Samba. It asks for a
+password for that share, separate from the SSH login. See
+[Download files locally](#download-files-locally). After reboot, open
+`http://lumi-collector.local:8080` on a phone and sign into PrimaryKey.
 
 ```bash
 # headless check without the HAT / camera
@@ -93,7 +95,7 @@ on a phone and sign into PrimaryKey.
 | -------------- | ---------------------------------------- | ------------------------------------------------ |
 | Compute        | Raspberry Pi Zero 2 W **with header**    | CSI-2, 802.11n, hardware H.264                   |
 | Camera         | Arducam IMX477 HQ + CS fisheye           | Same sensor you already run on the robot         |
-| Display / keys | Waveshare 1.3" LCD HAT (ST7789, 240×240) | 3 buttons + joystick                             |
+| Display / keys | [Waveshare 1.44" LCD HAT](https://www.waveshare.com/wiki/1.44inch_LCD_HAT) (ST7735S, 128×128) | 3 buttons + joystick |
 | IMU            | [HiLetgo GY-521 MPU-6050](https://a.co/d/07B4Yt1c) @ 200 Hz | 6-axis, I2C `0x68`. Noisier than a Hero BMI260 |
 | Power          | UPS-Lite 1000 mAh (pogo, underside)      | Charge on the UPS micro-USB, not the Pi PWR jack |
 
@@ -111,7 +113,8 @@ GY-521  SCL → GPIO3      (pin 5)
 
 Leave `AD0`, `XDA`, `XCL`, and `INT` open. `AD0` has an internal pulldown, so the
 address is already `0x68`. Power `VCC` from the Pi's 3V3 pin, not 5V.
-The UPS-Lite fuel gauge is already on this I2C bus (MAX17040 at `0x36`). The
+The UPS fuel gauge on this I2C bus is an INA219 at `0x43`. Charge on the
+screen is the cell voltage mapped from 3.0 V (empty) to 4.2 V (full). The
 MPU-6050 at `0x68` does not clash with it.
 
 ![Hardware wiring and the Python modules that run on the Pi](docs/architecture.png)
@@ -182,4 +185,46 @@ wants the MP4s on disk (`rsync` / download), not the PrimaryKey dataset viewer.
 ```
 
 Copy `raw_videos/` onto a workstation session directory and run the UMI
-scripts as usual.
+scripts as usual. The share below is the whole `/home/pi` folder, so the
+episodes are in `lumi/raw_videos`.
+
+## Download files locally
+
+`setup.sh` installs Samba, enables it, and asks you to set a password. Any
+computer on the same Wi-Fi can open the Pi's home folder with that password.
+The account is `pi`. The password is the one you typed at the Samba prompt,
+not the SSH login. The hostname below is the one set in Imager
+(`lumi-collector`); use whatever hostname the Pi actually has.
+
+The share name is `pi`.
+
+### Mac
+
+In Finder, choose Go → Connect to Server (⌘K) and enter:
+
+```text
+smb://lumi-collector.local/pi
+```
+
+Sign in as `pi`.
+
+### Windows
+
+In File Explorer's address bar, enter:
+
+```text
+\\lumi-collector.local\pi
+```
+
+Sign in as `pi`. If Windows asks for a domain, use `pi` as the user and leave
+the domain blank, or type `lumi-collector\pi`.
+
+### Ubuntu
+
+In Files, open Other Locations. At the bottom, in Connect to Server, enter:
+
+```text
+smb://lumi-collector.local/pi
+```
+
+Sign in as a registered user, name `pi`.

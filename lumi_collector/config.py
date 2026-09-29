@@ -9,11 +9,16 @@ import yaml
 
 @dataclass(frozen=True)
 class VideoConfig:
-    width: int = 1920
+    width: int = 1440
     height: int = 1080
     fps: int = 30
     bitrate: int = 10_000_000
-    lores_size: tuple[int, int] = (240, 240)
+    lores_size: tuple[int, int] = (320, 240)
+    # Full binned IMX477 mode. The encode size is this frame scaled to 4:3.
+    sensor_width: int = 2028
+    sensor_height: int = 1520
+    sensor_bit_depth: int = 12
+    tuning_file: str = "/home/pi/imx477_fisheye.json"
 
 
 @dataclass(frozen=True)
@@ -42,8 +47,8 @@ class ButtonConfig:
 
 @dataclass(frozen=True)
 class DisplayConfig:
-    width: int = 240
-    height: int = 240
+    width: int = 128
+    height: int = 128
     spi_port: int = 0
     spi_device: int = 0
     gpio_dc: int = 25
@@ -54,7 +59,7 @@ class DisplayConfig:
 
 @dataclass(frozen=True)
 class PowerConfig:
-    fuel_gauge_address: int = 0x36
+    fuel_gauge_address: int = 0x43
     charger_gpio: int = 4
     shutdown_cmd: tuple[str, ...] = ("sudo", "shutdown", "-h", "now")
 
@@ -101,7 +106,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
         raw = yaml.safe_load(path.read_text()) or {}
 
     video_raw = raw.get("video") or {}
-    lores = video_raw.get("lores_size") or [240, 240]
+    lores = video_raw.get("lores_size") or [320, 240]
     imu_raw = raw.get("imu") or {}
     btn_raw = raw.get("buttons") or {}
     disp_raw = raw.get("display") or {}
@@ -114,11 +119,15 @@ def load_config(path: Path | None = None) -> CollectorConfig:
         primarykey_url=str(raw.get("primarykey_url") or "https://app.primarykey.ai").rstrip("/"),
         setup_port=int(raw.get("setup_port") or 8080),
         video=VideoConfig(
-            width=int(video_raw.get("width") or 1920),
+            width=int(video_raw.get("width") or 1440),
             height=int(video_raw.get("height") or 1080),
             fps=int(video_raw.get("fps") or 30),
             bitrate=int(video_raw.get("bitrate") or 10_000_000),
             lores_size=(int(lores[0]), int(lores[1])),
+            sensor_width=int(video_raw.get("sensor_width") or 2028),
+            sensor_height=int(video_raw.get("sensor_height") or 1520),
+            sensor_bit_depth=int(video_raw.get("sensor_bit_depth") or 12),
+            tuning_file=str(video_raw.get("tuning_file") or "/home/pi/imx477_fisheye.json"),
         ),
         imu=ImuConfig(
             driver=str(imu_raw.get("driver") or "mpu6050"),
@@ -141,8 +150,8 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             long_press_s=float(btn_raw.get("long_press_s") or 2.0),
         ),
         display=DisplayConfig(
-            width=int(disp_raw.get("width") or 240),
-            height=int(disp_raw.get("height") or 240),
+            width=int(disp_raw.get("width") or 128),
+            height=int(disp_raw.get("height") or 128),
             spi_port=int(disp_raw.get("spi_port") or 0),
             spi_device=int(disp_raw.get("spi_device") or 0),
             gpio_dc=int(disp_raw.get("gpio_dc") or 25),
@@ -151,7 +160,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             rotate=int(disp_raw.get("rotate") or 0),
         ),
         power=PowerConfig(
-            fuel_gauge_address=int(pwr_raw.get("fuel_gauge_address") or 0x36),
+            fuel_gauge_address=int(pwr_raw.get("fuel_gauge_address") or 0x43),
             charger_gpio=int(pwr_raw.get("charger_gpio") or 4),
             shutdown_cmd=tuple(str(x) for x in shutdown),
         ),

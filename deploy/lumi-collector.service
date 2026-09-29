@@ -1,7 +1,7 @@
 [Unit]
 Description=Lumi handheld collector
-After=network-online.target
-Wants=network-online.target
+After=lumi-splash.service
+# Do not wait for Wi-Fi. The loading frame is already on the glass.
 
 [Service]
 Type=simple

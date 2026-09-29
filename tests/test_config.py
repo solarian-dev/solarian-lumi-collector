@@ -10,4 +10,8 @@ def test_yaml_roundtrip(tmp_path: Path):
     assert cfg.data_dir == Path("/tmp/lumi")
     assert cfg.imu.driver == "mock"
     assert cfg.imu.rate_hz == 100
-    assert cfg.video.width == 1920
+    assert cfg.video.width == 1440
+    assert cfg.video.height == 1080
+    assert cfg.video.fps == 30
+    assert cfg.video.sensor_width == 2028
+    assert cfg.video.sensor_height == 1520

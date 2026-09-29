@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 import time
@@ -9,9 +10,9 @@ from lumi_collector.auth import PrimaryKeyClient, load_credentials
 from lumi_collector.buttons import ButtonSource, GpioButtons
 from lumi_collector.catalog import Catalog, load_catalog, mark_deleted, save_catalog
 from lumi_collector.config import CollectorConfig, resolve_camera_serial
-from lumi_collector.display import Hud, MockDisplay, St7789Display, render
+from lumi_collector.display import Hud, render
 from lumi_collector.imu import open_imu
-from lumi_collector.playback import first_frame
+from lumi_collector.playback import ClipPlayer
 from lumi_collector.power import PowerMonitor, PowerStatus, free_gb
 from lumi_collector.recorder import MockCamera, Picamera2Camera, Recorder
 from lumi_collector.setup_server import start_setup_server
@@ -36,9 +37,10 @@ def _load_bmi_blob() -> bytes:
 
 
 class CollectorApp:
-    def __init__(self, cfg: CollectorConfig, *, mock: bool = False):
+    def __init__(self, cfg: CollectorConfig, display, *, mock: bool = False):
         self.cfg = cfg
         self.mock = mock
+        self.display = display
         self.serial = resolve_camera_serial(cfg)
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
         cfg.raw_videos_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +49,6 @@ class CollectorApp:
         self.state = UiState()
         self.buttons = ButtonSource(cfg.buttons)
         self.gpio = None if mock else GpioButtons(cfg.buttons)
-        self.display = MockDisplay() if mock else St7789Display(cfg.display)
         imu_cfg = cfg.imu
         if mock:
             from dataclasses import replace
@@ -57,6 +58,7 @@ class CollectorApp:
         camera = MockCamera(cfg) if mock else Picamera2Camera(cfg)
         self.recorder = Recorder(cfg, camera, self.imu)
         self.power = PowerMonitor(cfg.power)
+        self.player = ClipPlayer()
         self.preview = None
         self._stop = threading.Event()
 
@@ -75,6 +77,7 @@ class CollectorApp:
             server.shutdown()
             if self.gpio is not None:
                 self.gpio.close()
+            self.player.stop()
             self.imu.close()
             self.display.close()
 
@@ -86,6 +89,15 @@ class CollectorApp:
             self._dispatch(event)
         if self.recorder.recording:
             self.state.rec_s = self.recorder.elapsed_s()
+        if self.state.screen is Screen.PLAYBACK:
+            frame = self.player.frame
+            if frame is not None:
+                self.preview = frame
+        elif self.player.active:
+            self.player.stop()
+            self.preview = None
+        if self.state.screen is Screen.IMU:
+            self._read_imu()
         self._draw()
 
     def _dispatch(self, event: Event) -> None:
@@ -98,9 +110,20 @@ class CollectorApp:
         if action is Action.START_RECORD:
             self.recorder.start(self.catalog)
         elif action is Action.STOP_RECORD:
-            self.recorder.stop(self.catalog, self.serial)
-            save_catalog(self.cfg.catalog_path, self.catalog)
-            handle(self.state, Event.RECORD_SEALED, [e.filename for e in self.catalog.visible()])
+            try:
+                self.recorder.stop(self.catalog, self.serial)
+            except Exception:
+                logging.exception("recording seal failed")
+                self.state.screen = Screen.HOME
+                self.state.rec_s = 0.0
+                self.state.status = "save failed"
+            else:
+                save_catalog(self.cfg.catalog_path, self.catalog)
+                handle(
+                    self.state,
+                    Event.RECORD_SEALED,
+                    [e.filename for e in self.catalog.visible()],
+                )
         elif action is Action.DELETE:
             for name in list(self.state.pending_delete) or []:
                 mark_deleted(self.catalog, name)
@@ -114,7 +137,8 @@ class CollectorApp:
         elif action is Action.PLAY:
             names = [e.filename for e in self.catalog.visible()]
             if names:
-                self.preview = first_frame(self.cfg.raw_videos_dir / names[self.state.cursor])
+                self.preview = None
+                self.player.start(self.cfg.raw_videos_dir / names[self.state.cursor])
         elif action is Action.SHUTDOWN:
             self._stop.set()
             self.power.shutdown()
@@ -142,6 +166,18 @@ class CollectorApp:
         except Exception as exc:
             self.state.status = str(exc)
             handle(self.state, Event.UPLOAD_ERROR, names)
+
+    def _read_imu(self) -> None:
+        try:
+            sample = self.imu.read()
+        except Exception:
+            logging.exception("imu read failed")
+            return
+        if sample is None:
+            return
+        self.state.imu_acc = sample.acc_zxy
+        self.state.imu_gyr = sample.gyr_zxy
+        self.state.imu_temp = sample.temp_c
 
     def _refresh_account(self) -> None:
         creds = load_credentials(self.cfg.credentials_path)

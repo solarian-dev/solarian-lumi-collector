@@ -50,14 +50,25 @@ class Picamera2Camera:
         from picamera2.outputs import FileOutput
 
         h264_path.parent.mkdir(parents=True, exist_ok=True)
-        picam = Picamera2()
         video = self.cfg.video
+        tuning = Path(video.tuning_file)
+        if tuning.is_file():
+            picam = Picamera2(tuning=Picamera2.load_tuning_file(str(tuning)))
+        else:
+            picam = Picamera2()
+        # Read the whole 2028x1520 mode and scale it. A centered 4:3 crop of
+        # that mode is the full frame, so the fisheye circle stays in view.
         config = picam.create_video_configuration(
             main={"size": (video.width, video.height), "format": "YUV420"},
             lores={"size": video.lores_size, "format": "YUV420"},
+            sensor={
+                "output_size": (video.sensor_width, video.sensor_height),
+                "bit_depth": video.sensor_bit_depth,
+            },
+            controls={"FrameRate": video.fps},
         )
         picam.configure(config)
-        encoder = H264Encoder(bitrate=video.bitrate)
+        encoder = H264Encoder(bitrate=video.bitrate, framerate=video.fps)
         picam.start_recording(encoder, FileOutput(str(h264_path)))
         self._picam = picam
         self._encoder = encoder
