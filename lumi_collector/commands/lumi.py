@@ -15,6 +15,8 @@ from lumi_collector.stream import DEFAULT_STREAM_HOST, DEFAULT_STREAM_PORT, ffpl
 @CommandRegistry.register("lumi")
 class LumiCommand(BaseCommand):
     help = "Play the LUMI collector's live camera stream."
+    category = "Utilities"
+    uses_config = False
     description = """
     The collector must be on its Stream video screen, which listens with
     rpicam-vid. This opens that H.264 stream in ffplay so you can check the
