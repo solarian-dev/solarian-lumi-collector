@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont
 
 from lumi_collector.catalog import Episode
-from lumi_collector.state import Screen, UiState
+from lumi_collector.state import IMU_ROW, STREAM_ROW, Screen, UiState
 
 BG = (8, 10, 14)
 FG = (230, 232, 236)
@@ -26,6 +26,7 @@ class Hud:
     setup_url: str
     wifi: str
     play_s: float = 0.0
+    stream_port: int = 8888
 
 
 def _font(size: int):
@@ -254,25 +255,40 @@ def render(
             sign_value = signed
         else:
             sign_value = hud.setup_url
+        # Sign-in is the only two-line row: its URL is wider than the glass
+        # once fonts are scaled up for 128px. The other rows share the line.
         rows = (
-            ("IP", hud.wifi or "no address"),
-            ("sign in", sign_value or "not signed in"),
-            ("IMU", "live"),
+            (54, 76, "IP", hud.wifi or "no address", False),
+            (80, 120, "sign in", sign_value or "not signed in", True),
+            (124, 148, "IMU", "live", False),
+            (152, 176, "Stream video", f"tcp :{hud.stream_port}", False),
         )
-        for i, (label, value) in enumerate(rows):
-            y = 52 + i * 44
+        for i, (y, bottom, label, value, stacked) in enumerate(rows):
             if i == state.settings_cursor:
-                d.rectangle((4, y - 2, CANVAS[0] - 4, y + 36), fill=CARD)
-            d.text((8, y), label, font=body, fill=FG if i == state.settings_cursor else MUTED)
+                d.rectangle((4, y - 2, CANVAS[0] - 4, bottom), fill=CARD)
+            label_fill = FG if i == state.settings_cursor else MUTED
+            d.text((8, y), label, font=body, fill=label_fill)
             if label == "sign in" and not signed:
                 value_fill = AMBER
             elif i == state.settings_cursor:
                 value_fill = GREEN
             else:
                 value_fill = MUTED
-            d.text((8, y + 18), value, font=small, fill=value_fill)
-        if state.settings_cursor == 2:
+            if stacked:
+                d.text((8, y + 22), value, font=small, fill=value_fill)
+            else:
+                d.text((CANVAS[0] - 8, y), value, font=small, fill=value_fill, anchor="ra")
+        if state.settings_cursor == IMU_ROW:
             _hint(d, 8, 196, "Right", "live view", small)
+        elif state.settings_cursor == STREAM_ROW:
+            _hint(d, 8, 196, "Right", "stream", small)
+        _hint(d, 8, 214, "Key3 / Left", "back", small)
+
+    elif state.screen is Screen.STREAM:
+        d.text((8, 28), "streaming", font=title, fill=FG)
+        d.text((8, 64), f"tcp :{hud.stream_port}", font=body, fill=GREEN)
+        if state.status:
+            d.text((8, 96), state.status, font=small, fill=AMBER)
         _hint(d, 8, 214, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.IMU:

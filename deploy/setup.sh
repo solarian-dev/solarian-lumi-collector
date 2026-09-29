@@ -13,7 +13,7 @@ install -d -o pi -g pi /home/pi/lumi /home/pi/lumi/raw_videos /home/pi/lumi/work
 
 apt-get update
 apt-get install -y --no-install-recommends \
-  python3-venv python3-pip python3-libcamera python3-picamera2 \
+  python3-venv python3-pip python3-libcamera python3-picamera2 rpicam-apps \
   python3-numpy python3-pil python3-spidev python3-lgpio \
   ffmpeg libimage-exiftool-perl i2c-tools git samba
 

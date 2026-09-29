@@ -142,6 +142,21 @@ Sign-in is not typed on the joystick. After boot, open
 `http://<pi-ip>:8080` on a phone and log into PrimaryKey. The JWT stays on the
 SD card.
 
+## Check the picture
+
+Settings → **Stream video** → Right listens with `rpicam-vid` on port 8888
+(the same 1440×1080 mode a recording uses) and releases the camera so the
+listener can take it. On a computer with ffmpeg installed:
+
+```bash
+solarian lumi --stream
+```
+
+That runs `ffplay` against `tcp://solarian-lumi.local:8888`. Pass `--host` if
+the Pi's hostname is different. Key3 or Left on the collector stops the
+listener so the next recording can open the camera. The command is available
+when the `solarian-lumi-collector` plugin is installed.
+
 ## What "same as a Hero 10" means
 
 UMI does not decode "a GoPro file" as a brand. It needs:

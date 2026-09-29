@@ -19,6 +19,7 @@ class VideoConfig:
     sensor_height: int = 1520
     sensor_bit_depth: int = 12
     tuning_file: str = "/home/pi/imx477_fisheye.json"
+    stream_port: int = 8888
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             sensor_height=int(video_raw.get("sensor_height") or 1520),
             sensor_bit_depth=int(video_raw.get("sensor_bit_depth") or 12),
             tuning_file=str(video_raw.get("tuning_file") or "/home/pi/imx477_fisheye.json"),
+            stream_port=int(video_raw.get("stream_port") or 8888),
         ),
         imu=ImuConfig(
             driver=str(imu_raw.get("driver") or "mpu6050"),

@@ -15,3 +15,4 @@ def test_yaml_roundtrip(tmp_path: Path):
     assert cfg.video.fps == 30
     assert cfg.video.sensor_width == 2028
     assert cfg.video.sensor_height == 1520
+    assert cfg.video.stream_port == 8888

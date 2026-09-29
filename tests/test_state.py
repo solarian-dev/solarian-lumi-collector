@@ -1,7 +1,7 @@
 from lumi_collector.buttons import ButtonSource
 from lumi_collector.config import ButtonConfig
 from lumi_collector.display import BG, Hud, loading_frame, render
-from lumi_collector.state import Action, Event, Screen, UiState, handle
+from lumi_collector.state import STREAM_ROW, Action, Event, Screen, UiState, handle
 
 
 def names():
@@ -103,6 +103,23 @@ def test_long_press_off_home_is_back():
     assert state.screen is Screen.HOME
 
 
+def test_settings_opens_stream():
+    state = UiState()
+    handle(state, Event.KEY3, names())
+    for _ in range(STREAM_ROW):
+        handle(state, Event.JOY_DOWN, names())
+    assert state.settings_cursor == STREAM_ROW
+    handle(state, Event.JOY_DOWN, names())
+    assert state.settings_cursor == STREAM_ROW
+    assert handle(state, Event.JOY_PRESS, names()) == [Action.START_STREAM]
+    assert state.screen is Screen.STREAM
+    assert handle(state, Event.JOY_LEFT, names()) == [Action.STOP_STREAM]
+    assert state.screen is Screen.SETTINGS
+    assert handle(state, Event.JOY_RIGHT, names()) == [Action.START_STREAM]
+    assert handle(state, Event.KEY3, names()) == [Action.STOP_STREAM]
+    assert state.screen is Screen.SETTINGS
+
+
 def test_settings_opens_live_imu():
     state = UiState()
     handle(state, Event.KEY3, names())
@@ -133,6 +150,15 @@ def test_loading_frame_replaces_white():
     small = loading_frame(size=(128, 128))
     assert small.size == (128, 128)
     assert small.getpixel((0, 0)) != (255, 255, 255)
+
+
+def test_stream_screen_renders():
+    state = UiState(screen=Screen.STREAM, status="rpicam-vid exited 1")
+    img = render(state, [], Hud(battery_pct=50, charging=False, free_gb=1, rec_s=0, setup_url="", wifi=""))
+    assert img.size == (240, 240)
+    settings = UiState(screen=Screen.SETTINGS, settings_cursor=STREAM_ROW)
+    img = render(settings, [], Hud(battery_pct=50, charging=False, free_gb=1, rec_s=0, setup_url="", wifi=""))
+    assert img.size == (240, 240)
 
 
 def test_home_renders():

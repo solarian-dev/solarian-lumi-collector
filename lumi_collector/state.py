@@ -16,7 +16,12 @@ class Screen(str, Enum):
     SETTINGS = "settings"
     PLAYBACK = "playback"
     IMU = "imu"
+    STREAM = "stream"
     SHUTDOWN = "shutdown"
+
+
+IMU_ROW = 2
+STREAM_ROW = 3
 
 
 class Event(str, Enum):
@@ -40,6 +45,8 @@ class Action(str, Enum):
     DELETE = "delete"
     UPLOAD = "upload"
     PLAY = "play"
+    START_STREAM = "start_stream"
+    STOP_STREAM = "stop_stream"
     SHUTDOWN = "shutdown"
 
 
@@ -176,9 +183,13 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
         if event is Event.JOY_UP:
             state.settings_cursor = max(0, state.settings_cursor - 1)
         elif event is Event.JOY_DOWN:
-            state.settings_cursor = min(2, state.settings_cursor + 1)
-        elif event in {Event.JOY_RIGHT, Event.JOY_PRESS} and state.settings_cursor == 2:
+            state.settings_cursor = min(STREAM_ROW, state.settings_cursor + 1)
+        elif event in {Event.JOY_RIGHT, Event.JOY_PRESS} and state.settings_cursor == IMU_ROW:
             state.screen = Screen.IMU
+        elif event in {Event.JOY_RIGHT, Event.JOY_PRESS} and state.settings_cursor == STREAM_ROW:
+            state.status = ""
+            state.screen = Screen.STREAM
+            return [Action.START_STREAM]
         elif event is Event.KEY3 or event is Event.JOY_LEFT:
             state.screen = Screen.HOME
         return []
@@ -186,6 +197,12 @@ def handle(state: UiState, event: Event, filenames: list[str]) -> list[Action]:
     if state.screen is Screen.IMU:
         if event is Event.KEY3 or event is Event.JOY_LEFT:
             state.screen = Screen.SETTINGS
+        return []
+
+    if state.screen is Screen.STREAM:
+        if event is Event.KEY3 or event is Event.JOY_LEFT:
+            state.screen = Screen.SETTINGS
+            return [Action.STOP_STREAM]
         return []
 
     return []

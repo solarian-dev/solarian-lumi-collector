@@ -15,6 +15,7 @@ video:
   sensor_height: 1520
   sensor_bit_depth: 12
   tuning_file: /home/pi/imx477_fisheye.json
+  stream_port: 8888          # rpicam-vid --listen, played by `solarian lumi --stream`
 
 imu:
   driver: mpu6050          # mpu6050 | mock

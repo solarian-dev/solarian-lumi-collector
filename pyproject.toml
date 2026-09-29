@@ -6,7 +6,7 @@ authors = [
     {name = "Solarian Contributors", email = "solarian@example.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "av>=12.0.0",
     "numpy>=1.26.0",
@@ -30,6 +30,9 @@ dev = [
 
 [project.scripts]
 lumi-collector = "lumi_collector.__main__:main"
+
+[project.entry-points."solarian.commands"]
+lumi = "lumi_collector.commands.lumi:LumiCommand"
 
 [build-system]
 requires = ["setuptools>=61.0"]

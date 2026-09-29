@@ -17,6 +17,7 @@ from lumi_collector.power import PowerMonitor, PowerStatus, free_gb
 from lumi_collector.recorder import MockCamera, Picamera2Camera, Recorder
 from lumi_collector.setup_server import start_setup_server
 from lumi_collector.state import Action, Event, Screen, UiState, handle
+from lumi_collector.stream import NullStream, VideoStream
 from lumi_collector.upload import upload_selected
 
 
@@ -68,6 +69,7 @@ class CollectorApp:
         )
         self.power = PowerMonitor(cfg.power)
         self.player = ClipPlayer()
+        self.stream = NullStream() if mock else VideoStream(cfg.video)
         self.preview = None
         self._stop = threading.Event()
 
@@ -87,6 +89,7 @@ class CollectorApp:
             if self.gpio is not None:
                 self.gpio.close()
             self.player.stop()
+            self.stream.stop()
             self.recorder.close()
             self.imu.close()
             self.display.close()
@@ -108,6 +111,8 @@ class CollectorApp:
             self.preview = None
         if self.state.screen is Screen.IMU:
             self._read_imu()
+        if self.state.screen is Screen.STREAM:
+            self.state.status = self.stream.error
         self._draw()
 
     def _dispatch(self, event: Event) -> None:
@@ -149,8 +154,18 @@ class CollectorApp:
             if names:
                 self.preview = None
                 self.player.start(self.cfg.raw_videos_dir / names[self.state.cursor])
+        elif action is Action.START_STREAM:
+            # libcamera allows one client. Picamera2 stays open after a take;
+            # close() is what releases it, and the next recording recreates it.
+            if not self.recorder.recording:
+                self.recorder.camera.close()
+            self.stream.start()
+        elif action is Action.STOP_STREAM:
+            self.stream.stop()
+            self.state.status = ""
         elif action is Action.SHUTDOWN:
             self._stop.set()
+            self.stream.stop()
             self.recorder.close()
             self.power.shutdown()
 
@@ -214,6 +229,7 @@ class CollectorApp:
             play_s=self.player.position_s,
             setup_url=f"http://{ip}:{self.cfg.setup_port}",
             wifi=ip,
+            stream_port=self.cfg.video.stream_port,
         )
         frame = render(
             self.state,
