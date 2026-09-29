@@ -8,7 +8,7 @@ from pathlib import Path
 
 from lumi_collector.auth import PrimaryKeyClient, load_credentials
 from lumi_collector.buttons import ButtonSource, GpioButtons
-from lumi_collector.catalog import Catalog, load_catalog, mark_deleted, save_catalog
+from lumi_collector.catalog import Catalog, load_catalog, mark_deleted, mark_uploaded, save_catalog
 from lumi_collector.config import CollectorConfig, resolve_camera_serial
 from lumi_collector.display import Hud, render
 from lumi_collector.imu import open_imu
@@ -46,6 +46,7 @@ class CollectorApp:
         cfg.raw_videos_dir.mkdir(parents=True, exist_ok=True)
         cfg.work_dir.mkdir(parents=True, exist_ok=True)
         self.catalog: Catalog = load_catalog(cfg.catalog_path, self.serial)
+        self.catalog_lock = threading.Lock()
         self.state = UiState()
         self.buttons = ButtonSource(cfg.buttons)
         self.gpio = None if mock else GpioButtons(cfg.buttons)
@@ -56,7 +57,15 @@ class CollectorApp:
             imu_cfg = replace(cfg.imu, driver="mock")
         self.imu = open_imu(imu_cfg, config_blob=_load_bmi_blob())
         camera = MockCamera(cfg) if mock else Picamera2Camera(cfg)
-        self.recorder = Recorder(cfg, camera, self.imu)
+        self.recorder = Recorder(
+            cfg,
+            camera,
+            self.imu,
+            self.catalog,
+            self.catalog_lock,
+            self.serial,
+            on_failed=self._seal_failed,
+        )
         self.power = PowerMonitor(cfg.power)
         self.player = ClipPlayer()
         self.preview = None
@@ -78,6 +87,7 @@ class CollectorApp:
             if self.gpio is not None:
                 self.gpio.close()
             self.player.stop()
+            self.recorder.close()
             self.imu.close()
             self.display.close()
 
@@ -108,30 +118,30 @@ class CollectorApp:
 
     def _apply(self, action: Action) -> None:
         if action is Action.START_RECORD:
-            self.recorder.start(self.catalog)
+            self.recorder.start()
         elif action is Action.STOP_RECORD:
             try:
-                self.recorder.stop(self.catalog, self.serial)
+                self.recorder.stop()
             except Exception:
-                logging.exception("recording seal failed")
+                logging.exception("stop recording failed")
                 self.state.screen = Screen.HOME
                 self.state.rec_s = 0.0
                 self.state.status = "save failed"
             else:
-                save_catalog(self.cfg.catalog_path, self.catalog)
                 handle(
                     self.state,
                     Event.RECORD_SEALED,
                     [e.filename for e in self.catalog.visible()],
                 )
         elif action is Action.DELETE:
-            for name in list(self.state.pending_delete) or []:
-                mark_deleted(self.catalog, name)
-                path = self.cfg.raw_videos_dir / name
-                path.unlink(missing_ok=True)
-                path.with_suffix(".imu.json").unlink(missing_ok=True)
-            self.state.pending_delete = []
-            save_catalog(self.cfg.catalog_path, self.catalog)
+            with self.catalog_lock:
+                for name in list(self.state.pending_delete):
+                    mark_deleted(self.catalog, name)
+                    path = self.cfg.raw_videos_dir / name
+                    path.unlink(missing_ok=True)
+                    path.with_suffix(".imu.json").unlink(missing_ok=True)
+                self.state.pending_delete = []
+                save_catalog(self.cfg.catalog_path, self.catalog)
         elif action is Action.UPLOAD:
             threading.Thread(target=self._upload, daemon=True).start()
         elif action is Action.PLAY:
@@ -141,6 +151,7 @@ class CollectorApp:
                 self.player.start(self.cfg.raw_videos_dir / names[self.state.cursor])
         elif action is Action.SHUTDOWN:
             self._stop.set()
+            self.recorder.close()
             self.power.shutdown()
 
     def _upload(self) -> None:
@@ -161,7 +172,9 @@ class CollectorApp:
                 chosen,
                 project_id=creds.project_id,
             )
-            save_catalog(self.cfg.catalog_path, self.catalog)
+            with self.catalog_lock:
+                mark_uploaded(self.catalog, chosen)
+                save_catalog(self.cfg.catalog_path, self.catalog)
             handle(self.state, Event.UPLOAD_DONE, names)
         except Exception as exc:
             self.state.status = str(exc)
@@ -178,6 +191,10 @@ class CollectorApp:
         self.state.imu_acc = sample.acc_zxy
         self.state.imu_gyr = sample.gyr_zxy
         self.state.imu_temp = sample.temp_c
+
+    def _seal_failed(self) -> None:
+        if self.state.screen is not Screen.RECORDING:
+            self.state.status = "save failed"
 
     def _refresh_account(self) -> None:
         creds = load_credentials(self.cfg.credentials_path)

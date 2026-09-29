@@ -15,6 +15,8 @@ def test_record_toggle():
     assert handle(state, Event.KEY1, names()) == [Action.STOP_RECORD]
     handle(state, Event.RECORD_SEALED, names())
     assert state.screen is Screen.HOME
+    assert handle(state, Event.KEY1, names()) == [Action.START_RECORD]
+    assert state.screen is Screen.RECORDING
 
 
 def test_delete_last_from_home_needs_confirm():

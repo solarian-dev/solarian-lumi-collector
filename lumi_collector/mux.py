@@ -131,6 +131,40 @@ def write_gpmd_mov(path: Path, payloads: list[bytes]) -> None:
     path.write_bytes(ftyp + mdat + moov)
 
 
+def _ensure_silence_aac(path: Path, ffmpeg: str) -> None:
+    """One cached second of AAC. Mux loops it; encoding per clip stalls the card."""
+    if path.is_file() and path.stat().st_size > 0:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+            "-t",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+            str(path),
+        ],
+        check=False,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0 or not path.is_file():
+        path.unlink(missing_ok=True)
+        detail = (proc.stderr or "").strip()
+        raise RuntimeError(detail or f"ffmpeg exited {proc.returncode}")
+
+
 def mux_gopro_mp4(
     h264_path: Path,
     out_mp4: Path,
@@ -139,11 +173,13 @@ def mux_gopro_mp4(
     serial: str,
     started: datetime,
     fps: int,
+    silence_aac: Path,
     ffmpeg: str = "ffmpeg",
     exiftool: str = "exiftool",
     payloads: list[bytes] | None = None,
 ) -> None:
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_silence_aac(silence_aac, ffmpeg)
     if payloads is None:
         payloads = build_payloads(samples, serial=serial)
     mov_path = out_mp4.with_suffix(".gpmd.mov") if payloads else None
@@ -153,7 +189,12 @@ def mux_gopro_mp4(
     tc = timecode_from_datetime(started, fps)
     created = creation_time_iso(started)
     tick = max(1, round(_H264_TIMEBASE / fps))
+    # moov stays after mdat. UMI reads the file locally; +faststart would rewrite it.
+    # nice so a seal overlapping the next take yields the CPU to the encoder.
     cmd = [
+        "nice",
+        "-n",
+        "10",
         ffmpeg,
         "-y",
         "-hide_banner",
@@ -161,10 +202,10 @@ def mux_gopro_mp4(
         "error",
         "-i",
         str(h264_path),
-        "-f",
-        "lavfi",
+        "-stream_loop",
+        "-1",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=48000",
+        str(silence_aac),
     ]
     if mov_path is not None:
         cmd += ["-discard", "none", "-i", str(mov_path)]
@@ -182,9 +223,7 @@ def mux_gopro_mp4(
         "-bsf:v",
         f"setts=pts=N*{tick}:dts=N*{tick}:duration={tick}",
         "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
+        "copy",
         "-shortest",
         "-metadata:s:v:0",
         f"creation_time={created}",
@@ -192,8 +231,6 @@ def mux_gopro_mp4(
         f"timecode={tc}",
         "-timecode",
         tc,
-        "-movflags",
-        "+faststart",
         "-f",
         "mov",
         str(out_mp4),

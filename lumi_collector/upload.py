@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 from lumi_collector.auth import PrimaryKeyClient
-from lumi_collector.catalog import Catalog, Episode, mark_uploaded
+from lumi_collector.catalog import Catalog, Episode
 
 
 def zip_episodes(
@@ -58,6 +58,5 @@ def upload_selected(
         name=name,
         description=f"{len(chosen)} LUMI collector episodes",
     )
-    mark_uploaded(catalog, [e.filename for e in chosen])
     zip_path.unlink(missing_ok=True)
     return result
