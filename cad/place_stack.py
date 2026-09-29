@@ -1,4 +1,4 @@
-"""Place the real Pi, UPS HAT, LCD HAT, and HQ camera in the Lumi enclosure.
+"""Place the real Pi, UPS HAT, LCD HAT, and HQ camera in the LUMI enclosure.
 
 The lid is the back of the enclosure (+Y). The LCD faces that lid so the
 glass, three buttons, and joystick come through it. The camera barrel points

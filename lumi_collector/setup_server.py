@@ -12,13 +12,13 @@ from lumi_collector.config import CollectorConfig
 
 _PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lumi collector</title>
+<title>LUMI collector</title>
 <style>
  body { font: 16px/1.4 system-ui; max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
  input, select, button { width: 100%; margin: .3rem 0 1rem; padding: .5rem; }
  .ok { color: #1a7f37 } .err { color: #b42318 }
 </style>
-<h1>Lumi collector</h1>
+<h1>LUMI collector</h1>
 <p class="{cls}">{message}</p>
 <form method="post">
  <label>PrimaryKey URL</label>

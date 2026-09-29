@@ -1,4 +1,4 @@
-# Handheld Lumi collector. Paths are on the Pi SD card.
+# Handheld LUMI collector. Paths are on the Pi SD card.
 data_dir: /home/pi/lumi
 camera_serial: ""          # empty = derive from /proc/cpuinfo
 primarykey_url: https://app.primarykey.ai

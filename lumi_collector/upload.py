@@ -56,7 +56,7 @@ def upload_selected(
         zip_path,
         project_id=project_id,
         name=name,
-        description=f"{len(chosen)} Lumi collector episodes",
+        description=f"{len(chosen)} LUMI collector episodes",
     )
     mark_uploaded(catalog, [e.filename for e in chosen])
     zip_path.unlink(missing_ok=True)

@@ -1,4 +1,4 @@
-# Lumi collector (Pi Zero 2 W)
+# LUMI collector (Pi Zero 2 W)
 
 A GoPro Hero 10–shaped gripper recorder: one button starts an episode, the
 file on the SD card is an MP4 with H.264, audio, and a `gpmd` IMU track so

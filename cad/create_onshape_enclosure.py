@@ -1,4 +1,4 @@
-"""Create the Lumi collector enclosure as native Onshape sketches.
+"""Create the LUMI collector enclosure as native Onshape sketches.
 
 The Part Studio is sketches + extrudes, not an imported solid. Open any sketch
 in the feature tree and edit it. Key sizes are Onshape variables; the sketch
@@ -421,7 +421,7 @@ def main() -> None:
         "POST",
         "/api/v6/documents",
         {
-            "name": "Lumi collector enclosure",
+            "name": "LUMI collector enclosure",
             "description": (
                 "Drop-in replacement for the GoPro Hero 10 Black in the UMI holder. "
                 "Front profile is the Hero 10 body. Edit the sketches, or the variables "

@@ -104,7 +104,7 @@ def build_payload(
     serial: str,
     acc_total: int,
     gyr_total: int,
-    device_name: str = "Lumi Collector",
+    device_name: str = "LUMI Collector",
     device_id: int = 1,
 ) -> bytes:
     """One ~1 s GPMF payload: DEVC with ACCL and GYRO streams."""

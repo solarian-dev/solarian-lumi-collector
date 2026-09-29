@@ -142,7 +142,7 @@ def render(
     d.text((CANVAS[0] - 6, 3), f"{hud.free_gb:.1f} GB", font=small, fill=MUTED, anchor="ra")
 
     if state.screen is Screen.HOME:
-        d.text((8, 32), "Lumi collector", font=title, fill=FG)
+        d.text((8, 32), "LUMI collector", font=title, fill=FG)
         last = episodes[-1] if episodes else None
         if last is None:
             d.text((8, 60), "no episodes", font=body, fill=MUTED)

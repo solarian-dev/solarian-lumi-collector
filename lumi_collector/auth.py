@@ -80,7 +80,7 @@ class PrimaryKeyClient:
         name: str,
         description: str = "",
     ) -> dict:
-        """Store a raw Lumi session zip (UMI-compatible MP4s).
+        """Store a raw LUMI session zip (UMI-compatible MP4s).
 
         PrimaryKey's dataset API currently accepts ``lerobot`` or ``zarr``.
         A zarr upload is stored as an opaque zip, which is how raw

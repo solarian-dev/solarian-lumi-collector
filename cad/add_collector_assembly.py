@@ -6,7 +6,7 @@ Part Studio: 4.0 mm pin hole, center prong 3.0 mm, gaps 3.5 mm, outer prongs
 3.2 mm prongs in those gaps, 3.3 mm slot over the center prong, 14 mm wide,
 4.0 mm hole.
 
-Does not create a new document. Targets the existing Lumi collector enclosure.
+Does not create a new document. Targets the existing LUMI collector enclosure.
 """
 
 from __future__ import annotations

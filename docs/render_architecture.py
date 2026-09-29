@@ -98,7 +98,7 @@ def main() -> None:
     img = Image.new("RGB", (W, H), WHITE)
     d = ImageDraw.Draw(img)
 
-    label(d, (W / 2, 28), "Lumi Collector", size=28, bold=True, anchor="mt")
+    label(d, (W / 2, 28), "LUMI Collector", size=28, bold=True, anchor="mt")
     label(
         d,
         (W / 2, 58),

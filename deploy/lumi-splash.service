@@ -1,5 +1,5 @@
 [Unit]
-Description=Lumi loading screen
+Description=LUMI loading screen
 # The collector waits for sysinit (~20s). SPI is up immediately, and the
 # glass is white until this frame is sent.
 DefaultDependencies=no

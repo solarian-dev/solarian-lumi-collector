@@ -1,7 +1,7 @@
 [project]
 name = "solarian-lumi-collector"
 version = "0.1.0"
-description = "Lumi handheld collector — light UMI, Raspberry Pi Zero 2 W"
+description = "LUMI handheld collector — light UMI, Raspberry Pi Zero 2 W"
 authors = [
     {name = "Solarian Contributors", email = "solarian@example.com"}
 ]

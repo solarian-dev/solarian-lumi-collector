@@ -1,5 +1,5 @@
 [Unit]
-Description=Lumi handheld collector
+Description=LUMI handheld collector
 After=lumi-splash.service
 # Do not wait for Wi-Fi. The loading frame is already on the glass.
 
