@@ -1,5 +1,6 @@
 # Handheld LUMI collector. Paths are on the Pi SD card.
 data_dir: /home/pi/lumi
+ram_work_dir: /dev/shm/lumi   # takes record to RAM; the SD card only gets the sealed MP4
 camera_serial: ""          # empty = derive from /proc/cpuinfo
 primarykey_url: https://app.primarykey.ai
 setup_port: 8080
@@ -15,6 +16,8 @@ video:
   sensor_height: 1520
   sensor_bit_depth: 12
   tuning_file: /home/pi/imx477_fisheye.json
+  # Shutter ceiling in µs; longer exposures blur features SLAM tracks. 0 = tuning file's own.
+  max_exposure_us: 8000
   stream_port: 8888          # rpicam-vid --listen, played by `solarian lumi --stream`
 
 imu:

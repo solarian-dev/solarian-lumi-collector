@@ -33,12 +33,26 @@ def rpicam_vid_argv(video: VideoConfig) -> list[str]:
     ]
 
 
-def ffplay_argv(host: str = DEFAULT_STREAM_HOST, port: int = DEFAULT_STREAM_PORT) -> list[str]:
+def ffplay_argv(
+    host: str = DEFAULT_STREAM_HOST, port: int = DEFAULT_STREAM_PORT, fps: int = VideoConfig.fps
+) -> list[str]:
     return [
         "ffplay",
-        "-fflags", "nobuffer",
+        "-hide_banner",
+        # Launched from an editor's terminal, the window otherwise opens behind it.
+        "-alwaysontop",
+        "-window_title", "LUMI stream",
+        # -fflags nobuffer decodes nothing from this raw H.264 socket (ffmpeg 8).
         "-flags", "low_delay",
+        # Show frames as they arrive and drop late ones instead of queueing them.
+        "-sync", "ext",
+        "-framedrop",
+        "-probesize", "32",
+        "-analyzeduration", "0",
         "-f", "h264",
+        # Raw H.264 has no timestamps and the demuxer assumes 25 fps; at the
+        # camera's 30 the player falls further behind every second.
+        "-framerate", str(fps),
         "-vf", "scale=in_range=tv:out_range=pc",
         f"tcp://{host}:{port}",
     ]

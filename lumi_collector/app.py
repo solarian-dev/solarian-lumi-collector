@@ -49,6 +49,7 @@ class CollectorApp:
         self.catalog: Catalog = load_catalog(cfg.catalog_path, self.serial)
         self.catalog_lock = threading.Lock()
         self.state = UiState()
+        self._dropped_status = ""
         self.buttons = ButtonSource(cfg.buttons)
         self.gpio = None if mock else GpioButtons(cfg.buttons)
         imu_cfg = cfg.imu
@@ -66,6 +67,7 @@ class CollectorApp:
             self.catalog_lock,
             self.serial,
             on_failed=self._seal_failed,
+            on_dropped=self._frames_dropped,
         )
         self.power = PowerMonitor(cfg.power)
         self.player = ClipPlayer()
@@ -138,6 +140,9 @@ class CollectorApp:
                     Event.RECORD_SEALED,
                     [e.filename for e in self.catalog.visible()],
                 )
+                if self._dropped_status:
+                    self.state.status = self._dropped_status
+                    self._dropped_status = ""
         elif action is Action.DELETE:
             with self.catalog_lock:
                 for name in list(self.state.pending_delete):
@@ -206,6 +211,9 @@ class CollectorApp:
         self.state.imu_acc = sample.acc_zxy
         self.state.imu_gyr = sample.gyr_zxy
         self.state.imu_temp = sample.temp_c
+
+    def _frames_dropped(self, _filename: str, count: int) -> None:
+        self._dropped_status = f"{count} frames dropped"
 
     def _seal_failed(self) -> None:
         if self.state.screen is not Screen.RECORDING:

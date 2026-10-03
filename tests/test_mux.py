@@ -1,9 +1,14 @@
-import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lumi_collector.mux import creation_time_iso, mux_gopro_mp4, timecode_from_datetime, write_gpmd_mov
+from lumi_collector.mux import (
+    creation_time_iso,
+    mux_gopro_mp4,
+    slot_timestamps,
+    timecode_from_datetime,
+    write_gpmd_mov,
+)
 
 
 def test_timecode_and_creation_time():
@@ -26,13 +31,12 @@ def test_mux_copies_cached_silence(tmp_path, monkeypatch):
         return Proc()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr(shutil, "which", lambda _name: None)
     h264 = tmp_path / "clip.h264"
     h264.write_bytes(b"\x00")
     silence = tmp_path / "silence.m4a"
     out = tmp_path / "raw" / "GX010001.MP4"
     mux_gopro_mp4(
-        h264,
+        [h264],
         out,
         [],
         serial="LUMI1",
@@ -42,8 +46,12 @@ def test_mux_copies_cached_silence(tmp_path, monkeypatch):
     )
     assert calls[0][-1] == str(silence)
     assert "anullsrc=channel_layout=stereo:sample_rate=48000" in calls[0]
+    # The seal process already runs at idle priority; no exiftool pass after the mux.
+    assert len(calls) == 2
     mux = calls[1]
-    assert mux[:4] == ["nice", "-n", "10", "ffmpeg"]
+    assert mux[0] == "ffmpeg"
+    assert mux[mux.index("-i") - 2 : mux.index("-i") + 2] == ["-f", "h264", "-i", str(h264)]
+    assert mux[mux.index("-bsf:v") + 1] == "setts=pts=(N)*40000:dts=(N)*40000:duration=40000"
     loop_at = mux.index("-stream_loop")
     assert mux[loop_at + 1 : loop_at + 4] == ["-1", "-i", str(silence)]
     assert mux[mux.index("-c:a") + 1] == "copy"
@@ -52,6 +60,11 @@ def test_mux_copies_cached_silence(tmp_path, monkeypatch):
     joined = " ".join(mux)
     assert "anullsrc" not in joined
     assert "-c:a aac" not in joined
+
+
+def test_slot_timestamps_shift_packets_after_each_gap():
+    assert slot_timestamps(None, 40000) == "(N)*40000"
+    assert slot_timestamps([0, 1, 2, 6, 7, 9], 40000) == "(N+gte(N\\,3)*3+gte(N\\,5)*1)*40000"
 
 
 def test_gpmd_mov_has_one_sample_per_payload(tmp_path: Path):

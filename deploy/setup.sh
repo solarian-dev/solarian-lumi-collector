@@ -15,7 +15,13 @@ apt-get update
 apt-get install -y --no-install-recommends \
   python3-venv python3-pip python3-libcamera python3-picamera2 rpicam-apps \
   python3-numpy python3-pil python3-spidev python3-lgpio \
-  ffmpeg libimage-exiftool-perl i2c-tools git samba
+  ffmpeg i2c-tools git samba
+
+# ionice -c 3 on the save process only takes effect under BFQ.
+echo 'ACTION=="add|change", KERNEL=="mmcblk[0-9]", ATTR{queue/scheduler}="bfq"' \
+  > /etc/udev/rules.d/60-lumi-bfq.rules
+udevadm control --reload
+udevadm trigger --action=change --subsystem-match=block
 
 if [[ -f /boot/firmware/config.txt ]]; then
   CFG=/boot/firmware/config.txt

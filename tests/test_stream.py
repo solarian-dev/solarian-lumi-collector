@@ -26,9 +26,16 @@ def test_rpicam_vid_argv_matches_lens_check():
 def test_ffplay_argv():
     assert ffplay_argv() == [
         "ffplay",
-        "-fflags", "nobuffer",
+        "-hide_banner",
+        "-alwaysontop",
+        "-window_title", "LUMI stream",
         "-flags", "low_delay",
+        "-sync", "ext",
+        "-framedrop",
+        "-probesize", "32",
+        "-analyzeduration", "0",
         "-f", "h264",
+        "-framerate", "30",
         "-vf", "scale=in_range=tv:out_range=pc",
         "tcp://solarian-lumi.local:8888",
     ]

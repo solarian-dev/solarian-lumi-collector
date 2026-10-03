@@ -11,6 +11,9 @@ ExecStart=/home/pi/lumi/venv/bin/lumi-collector --config /home/pi/lumi/collector
 Restart=on-failure
 RestartSec=2
 Nice=-5
+# Core 3 is left to the save process (lumi_collector.seal) so it never takes
+# CPU from the camera's output thread.
+CPUAffinity=0-2
 
 [Install]
 WantedBy=multi-user.target

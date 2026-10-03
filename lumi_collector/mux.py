@@ -1,12 +1,11 @@
 """Remux H.264 + silent AAC + GPMF into a GoPro-shaped MP4.
 
-UMI ``00_process_videos.py`` reads ``QuickTime:CameraSerialNumber`` via
-exiftool and ``creation_time`` + ``timecode`` via PyAV.
+UMI ``00_process_videos.py`` reads ``creation_time`` + ``timecode`` via PyAV;
+the camera serial is the GPMF ``CASN`` in the ``gpmd`` track.
 """
 
 from __future__ import annotations
 
-import shutil
 import struct
 import subprocess
 from datetime import datetime, timezone
@@ -165,8 +164,22 @@ def _ensure_silence_aac(path: Path, ffmpeg: str) -> None:
         raise RuntimeError(detail or f"ffmpeg exited {proc.returncode}")
 
 
+def slot_timestamps(slots: list[int] | None, tick: int) -> str:
+    """setts expression placing packet N at its frame slot, in timebase ticks.
+
+    A dropped frame leaves its slot empty, so players hold the previous frame
+    for it and the video keeps real time.
+    """
+    shift = "".join(
+        f"+gte(N\\,{k})*{b - a - 1}"
+        for k, (a, b) in enumerate(zip(slots or [], (slots or [])[1:]), start=1)
+        if b - a > 1
+    )
+    return f"(N{shift})*{tick}"
+
+
 def mux_gopro_mp4(
-    h264_path: Path,
+    h264_paths: list[Path],
     out_mp4: Path,
     samples: list[ImuSample],
     *,
@@ -174,10 +187,11 @@ def mux_gopro_mp4(
     started: datetime,
     fps: int,
     silence_aac: Path,
+    slots: list[int] | None = None,
     ffmpeg: str = "ffmpeg",
-    exiftool: str = "exiftool",
     payloads: list[bytes] | None = None,
 ) -> None:
+    """``h264_paths`` are consecutive pieces of one stream (a take can move to the SD card)."""
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     _ensure_silence_aac(silence_aac, ffmpeg)
     if payloads is None:
@@ -189,19 +203,19 @@ def mux_gopro_mp4(
     tc = timecode_from_datetime(started, fps)
     created = creation_time_iso(started)
     tick = max(1, round(_H264_TIMEBASE / fps))
+    pts = slot_timestamps(slots, tick)
+    source = str(h264_paths[0]) if len(h264_paths) == 1 else "concat:" + "|".join(map(str, h264_paths))
     # moov stays after mdat. UMI reads the file locally; +faststart would rewrite it.
-    # nice so a seal overlapping the next take yields the CPU to the encoder.
     cmd = [
-        "nice",
-        "-n",
-        "10",
         ffmpeg,
         "-y",
         "-hide_banner",
         "-loglevel",
         "error",
+        "-f",
+        "h264",
         "-i",
-        str(h264_path),
+        source,
         "-stream_loop",
         "-1",
         "-i",
@@ -221,7 +235,7 @@ def mux_gopro_mp4(
         "-c:v",
         "copy",
         "-bsf:v",
-        f"setts=pts=N*{tick}:dts=N*{tick}:duration={tick}",
+        f"setts=pts={pts}:dts={pts}:duration={tick}",
         "-c:a",
         "copy",
         "-shortest",
@@ -244,20 +258,3 @@ def mux_gopro_mp4(
     finally:
         if mov_path is not None:
             mov_path.unlink(missing_ok=True)
-    _stamp_serial(out_mp4, serial, exiftool)
-
-
-def _stamp_serial(mp4: Path, serial: str, exiftool: str) -> None:
-    if shutil.which(exiftool) is None:
-        return
-    subprocess.run(
-        [
-            exiftool,
-            "-overwrite_original",
-            f"-QuickTime:CameraSerialNumber={serial}",
-            str(mp4),
-        ],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )

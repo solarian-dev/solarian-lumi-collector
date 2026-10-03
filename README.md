@@ -166,10 +166,42 @@ UMI does not decode "a GoPro file" as a brand. It needs:
 3. A `gpmd` timed-metadata track (`handler_name=GoPro MET`) with ACCL @ m/s²
   and GYRO @ rad/s, stored ZXY, ~200 Hz
 4. `creation_time` + `timecode` on the video stream (PyAV)
-5. `QuickTime:CameraSerialNumber` (exiftool), used by `00_process_videos.py`
+5. The camera serial, which `00_process_videos.py` reads from the GPMF `CASN`
+   in the `gpmd` track
 
 This appliance writes exactly that. A `.imu.json` sidecar is also kept next to
-each file so a botched mux is still recoverable.
+each file. `solarian umi-slam --camera lumi` reads its IMU from the sidecar,
+not the `gpmd` track, because the sidecar keeps each sample's time:
+
+- `streams`: ACCL and GYRO, `cts` in milliseconds on the IMU clock.
+- `frames`: each written video frame's sensor start-of-exposure on the same
+  clock (`t_s`, seconds). Frame k of the MP4 is `frames[k]`. The encoder skips
+  to its first keyframe, so the video can start well after the IMU.
+- `dropped_frames`: `{"after_frame": k, "missing": m}` for each place the
+  camera did not deliver frames. The MP4's timestamps leave those slots empty,
+  so players hold frame k and the video keeps real time; `solarian umi-slam`
+  repeats frame k there to make an exact 30 fps video. Drops are also logged
+  as warnings, counted per episode in `catalog.json`, and shown on screen.
+
+Recording and saving are split so the save never costs a frame, even back to
+back. A take records to a RAM disk (`ram_work_dir`, `/dev/shm/lumi`) and moves
+to the SD card mid-take only if memory runs low. Each finished take is saved
+by `python -m lumi_collector.seal` in its own process, at idle CPU and I/O
+priority on core 3 (the collector runs on cores 0 to 2). If a take drops a
+frame anyway, saves pause until it stops. `python -m lumi_collector.stress`
+records back-to-back takes (stop `lumi-collector` first) and reports every
+dropped frame.
+
+Auto-exposure never holds the shutter open past `video.max_exposure_us`
+(8 ms). The stock IMX477 tuning lets it stretch to the whole 33 ms frame
+indoors, which smears the features SLAM tracks while the gripper moves.
+Gain makes up the light, digitally beyond the sensor's analogue limit, so a
+dim room looks noisier rather than darker.
+- `imu`: how the samples were timed. The MPU-6050 streams through its FIFO:
+  the chip queues samples on its own clock, the recorder drains it every
+  40 ms, and sample times come from the sample count fitted to the drain
+  times, minus the low-pass filter delay. A stall over 425 ms overflows the
+  FIFO; the take keeps going in a new `segments` entry with its own start time.
 
 Honest limits versus a real Hero 10 Black:
 

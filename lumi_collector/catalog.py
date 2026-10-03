@@ -14,6 +14,8 @@ class Episode:
     size_bytes: int
     uploaded: bool = False
     deleted: bool = False
+    # Frames the camera did not deliver; the video holds the previous frame for each.
+    dropped_frames: int = 0
 
     @property
     def stem(self) -> str:
@@ -80,12 +82,14 @@ def add_episode(
     duration_s: float,
     size_bytes: int,
     started_at: str | None = None,
+    dropped_frames: int = 0,
 ) -> Episode:
     episode = Episode(
         filename=filename,
         started_at=started_at or _now_iso(),
         duration_s=float(duration_s),
         size_bytes=int(size_bytes),
+        dropped_frames=int(dropped_frames),
     )
     catalog.episodes.append(episode)
     return episode

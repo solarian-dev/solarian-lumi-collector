@@ -20,6 +20,8 @@ class VideoConfig:
     sensor_bit_depth: int = 12
     tuning_file: str = "/home/pi/imx477_fisheye.json"
     stream_port: int = 8888
+    # Auto-exposure shutter ceiling, µs; gain makes up the light. 0 leaves the tuning's own.
+    max_exposure_us: int = 8000
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,9 @@ class PowerConfig:
 @dataclass(frozen=True)
 class CollectorConfig:
     data_dir: Path = Path("/home/pi/lumi")
+    # Takes record here (a RAM disk) so capture never waits on the SD card.
+    # None records straight into work_dir.
+    ram_work_dir: Path | None = None
     camera_serial: str = ""
     primarykey_url: str = "https://app.primarykey.ai"
     setup_port: int = 8080
@@ -116,6 +121,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
 
     return CollectorConfig(
         data_dir=Path(raw.get("data_dir") or "/home/pi/lumi"),
+        ram_work_dir=Path(raw["ram_work_dir"]) if raw.get("ram_work_dir") else None,
         camera_serial=str(raw.get("camera_serial") or ""),
         primarykey_url=str(raw.get("primarykey_url") or "https://app.primarykey.ai").rstrip("/"),
         setup_port=int(raw.get("setup_port") or 8080),
@@ -130,6 +136,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             sensor_bit_depth=int(video_raw.get("sensor_bit_depth") or 12),
             tuning_file=str(video_raw.get("tuning_file") or "/home/pi/imx477_fisheye.json"),
             stream_port=int(video_raw.get("stream_port") or 8888),
+            max_exposure_us=int(video_raw.get("max_exposure_us", 8000) or 0),
         ),
         imu=ImuConfig(
             driver=str(imu_raw.get("driver") or "mpu6050"),
