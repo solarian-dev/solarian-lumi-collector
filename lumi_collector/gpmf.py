@@ -7,8 +7,11 @@ UMI's ``01_extract_gopro_imu.py`` runs OpenImuCameraCalibrator against a
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+import numpy as np
 
 # Hero 10-class scales: int16 / SCAL = SI unit. 418 matches published ACCL
 # examples (±8 g). 1000 keeps ±32.7 rad/s inside int16 for a ±2000 dps gyro.
@@ -59,20 +62,9 @@ def _f32(key: str, value: float) -> bytes:
     return klv(key, ord("f"), 4, struct.pack(">f", float(value)))
 
 
-def _to_i16(value: float, scale: int) -> int:
-    return max(-32768, min(32767, int(round(value * scale))))
-
-
-def _pack_zxy(samples: list[tuple[float, float, float]], scale: int) -> bytes:
-    packed = bytearray()
-    for z, x, y in samples:
-        packed += struct.pack(
-            ">hhh",
-            _to_i16(z, scale),
-            _to_i16(x, scale),
-            _to_i16(y, scale),
-        )
-    return bytes(packed)
+def _pack_zxy(values: np.ndarray, scale: int) -> bytes:
+    """(N, 3) ZXY in SI units to big-endian int16, rounded half to even and clipped."""
+    return np.clip(np.rint(values * scale), -32768, 32767).astype(">i2").tobytes()
 
 
 def _stream(
@@ -80,7 +72,7 @@ def _stream(
     unit: str,
     fourcc: str,
     scale: int,
-    samples: list[tuple[float, float, float]],
+    values: np.ndarray,
     total_samples: int,
     temp_c: float,
 ) -> bytes:
@@ -92,14 +84,14 @@ def _stream(
             _string("SIUN", unit),
             _i16("SCAL", scale),
             _string("ORIN", "ZXY"),
-            klv(fourcc, ord("s"), 6, _pack_zxy(samples, scale)),
+            klv(fourcc, ord("s"), 6, _pack_zxy(values, scale)),
         )
     )
     return nest("STRM", body)
 
 
 def build_payload(
-    samples: list[ImuSample],
+    samples: np.ndarray,
     *,
     serial: str,
     acc_total: int,
@@ -107,69 +99,45 @@ def build_payload(
     device_name: str = "LUMI Collector",
     device_id: int = 1,
 ) -> bytes:
-    """One ~1 s GPMF payload: DEVC with ACCL and GYRO streams."""
-    if not samples:
+    """One ~1 s GPMF payload: DEVC with ACCL and GYRO streams.
+
+    ``samples`` rows are t_s, acc ZXY, gyr ZXY, temp_c (``seal.sample_array``).
+    """
+    if not len(samples):
         return nest(
             "DEVC",
             _u32("DVID", device_id) + _string("DVNM", device_name) + _string("CASN", serial),
         )
-    temp = sum(s.temp_c for s in samples) / len(samples)
-    acc = [s.acc_zxy for s in samples]
-    gyr = [s.gyr_zxy for s in samples]
+    temp = sum(samples[:, 7].tolist()) / len(samples)
     body = b"".join(
         (
             _u32("DVID", device_id),
             _string("DVNM", device_name),
             _string("CASN", serial),
-            _stream(
-                "Accelerometer",
-                "m/s2",
-                "ACCL",
-                ACCL_SCALE,
-                acc,
-                acc_total,
-                temp,
-            ),
-            _stream(
-                "Gyroscope",
-                "rad/s",
-                "GYRO",
-                GYRO_SCALE,
-                gyr,
-                gyr_total,
-                temp,
-            ),
+            _stream("Accelerometer", "m/s2", "ACCL", ACCL_SCALE, samples[:, 1:4], acc_total, temp),
+            _stream("Gyroscope", "rad/s", "GYRO", GYRO_SCALE, samples[:, 4:7], gyr_total, temp),
         )
     )
     return nest("DEVC", body)
 
 
 def build_payloads(
-    samples: list[ImuSample],
+    samples: np.ndarray,
     *,
     serial: str,
     window_s: float = 1.0,
 ) -> list[bytes]:
-    if not samples:
+    if not len(samples):
         return []
     payloads: list[bytes] = []
-    acc_total = 0
-    gyr_total = 0
-    start = samples[0].t_s
-    end = samples[-1].t_s
-    t = start
+    total = 0
+    t_s = samples[:, 0]
+    t = t_s[0]
+    end = t_s[-1]
     while t <= end + 1e-9:
-        window = [s for s in samples if t <= s.t_s < t + window_s]
-        acc_total += len(window)
-        gyr_total += len(window)
-        payloads.append(
-            build_payload(
-                window,
-                serial=serial,
-                acc_total=acc_total,
-                gyr_total=gyr_total,
-            )
-        )
+        window = samples[(t_s >= t) & (t_s < t + window_s)]
+        total += len(window)
+        payloads.append(build_payload(window, serial=serial, acc_total=total, gyr_total=total))
         t += window_s
     return payloads
 
@@ -210,25 +178,16 @@ def extract_stream_samples(blob: bytes, fourcc: str, scale: int) -> list[tuple[f
     return out
 
 
-def telemetry_json(
-    samples: list[ImuSample],
-    *,
-    start: datetime,
-    stream_name: str = "ACCL",
-) -> dict:
-    """gopro-telemetry-shaped samples (what extract_metadata_single.js emits)."""
-    origin = start.astimezone(timezone.utc)
-    rows = []
-    for sample in samples:
-        stamp = origin.timestamp() + sample.t_s
-        dt = datetime.fromtimestamp(stamp, tz=timezone.utc)
-        value = sample.acc_zxy if stream_name == "ACCL" else sample.gyr_zxy
-        rows.append(
-            {
-                "value": [value[0], value[1], value[2]],
-                "cts": sample.t_s * 1000.0,
-                "date": dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-                "temperature [°C]": sample.temp_c,
-            }
-        )
-    return rows
+def telemetry_rows(samples: np.ndarray, *, start: datetime, stream_name: str) -> Iterator[dict]:
+    """gopro-telemetry-shaped samples (what extract_metadata_single.js emits), one at a time."""
+    origin = start.astimezone(timezone.utc).timestamp()
+    columns = slice(1, 4) if stream_name == "ACCL" else slice(4, 7)
+    for row in samples:
+        t_s = float(row[0])
+        dt = datetime.fromtimestamp(origin + t_s, tz=timezone.utc)
+        yield {
+            "value": row[columns].tolist(),
+            "cts": t_s * 1000.0,
+            "date": dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "temperature [°C]": float(row[7]),
+        }

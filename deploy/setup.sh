@@ -23,6 +23,15 @@ echo 'ACTION=="add|change", KERNEL=="mmcblk[0-9]", ATTR{queue/scheduler}="bfq"' 
 udevadm control --reload
 udevadm trigger --action=change --subsystem-match=block
 
+# A take writes to the SD card while earlier ones save to it. The kernel's default ratios let
+# tens of MB wait unwritten; reclaiming memory then waits on the card and, at 15 Mbit/s, stalls
+# the camera for most of a second.
+cat > /etc/sysctl.d/60-lumi-writeback.conf <<'EOF'
+vm.dirty_background_bytes = 4194304
+vm.dirty_bytes = 16777216
+EOF
+sysctl -p /etc/sysctl.d/60-lumi-writeback.conf
+
 if [[ -f /boot/firmware/config.txt ]]; then
   CFG=/boot/firmware/config.txt
 else
@@ -33,6 +42,10 @@ while IFS= read -r line; do
   [[ -z "$line" || "$line" =~ ^# ]] && continue
   grep -qxF "$line" "$CFG" || echo "$line" >> "$CFG"
 done < "$SRC/deploy/config.txt.snippet"
+# The KMS overlay reserves 256 MB of the 415 for contiguous buffers by default, and the kernel only
+# lends that out reluctantly, so the save swapped the collector out with 80 MB "free". The camera
+# needs about 60 MB of it; the LCD is on SPI, so nothing else does. Applies at the next boot.
+sed -i 's/^dtoverlay=vc4-kms-v3d$/dtoverlay=vc4-kms-v3d,cma-128/' "$CFG"
 
 # dtparam=i2c_arm=on enables the controller. /dev/i2c-1 needs this module.
 echo i2c-dev > /etc/modules-load.d/i2c-dev.conf

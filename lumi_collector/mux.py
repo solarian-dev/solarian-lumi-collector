@@ -6,12 +6,15 @@ the camera serial is the GPMF ``CASN`` in the ``gpmd`` track.
 
 from __future__ import annotations
 
+import os
 import struct
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lumi_collector.gpmf import ImuSample, build_payloads
+import numpy as np
+
+from lumi_collector.gpmf import build_payloads
 
 
 def timecode_from_datetime(started: datetime, fps: int) -> str:
@@ -26,6 +29,32 @@ def timecode_from_datetime(started: datetime, fps: int) -> str:
 
 def creation_time_iso(started: datetime) -> str:
     return started.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+# While ffmpeg muxes, how often its input and output leave the page cache.
+CACHE_DROP_S = 0.5
+
+
+def drop_cache(fd: int) -> None:
+    """Drop a file's pages that are on the card from the page cache.
+
+    Video is written once and read once. Cached, the save's second read marks
+    it active and the Pi swaps the collector out to keep it. macOS, where the
+    tests run, has no posix_fadvise.
+    """
+    if hasattr(os, "posix_fadvise"):
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+def _drop_path_cache(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except FileNotFoundError:
+        return
+    try:
+        drop_cache(fd)
+    finally:
+        os.close(fd)
 
 
 # Raw H.264 demuxer timebase. Packets have no PTS; without stamped
@@ -164,7 +193,7 @@ def _ensure_silence_aac(path: Path, ffmpeg: str) -> None:
         raise RuntimeError(detail or f"ffmpeg exited {proc.returncode}")
 
 
-def slot_timestamps(slots: list[int] | None, tick: int) -> str:
+def slot_timestamps(slots: list[int], tick: int) -> str:
     """setts expression placing packet N at its frame slot, in timebase ticks.
 
     A dropped frame leaves its slot empty, so players hold the previous frame
@@ -172,26 +201,25 @@ def slot_timestamps(slots: list[int] | None, tick: int) -> str:
     """
     shift = "".join(
         f"+gte(N\\,{k})*{b - a - 1}"
-        for k, (a, b) in enumerate(zip(slots or [], (slots or [])[1:]), start=1)
+        for k, (a, b) in enumerate(zip(slots, slots[1:]), start=1)
         if b - a > 1
     )
     return f"(N{shift})*{tick}"
 
 
 def mux_gopro_mp4(
-    h264_paths: list[Path],
+    h264_path: Path,
     out_mp4: Path,
-    samples: list[ImuSample],
+    samples: np.ndarray,
     *,
     serial: str,
     started: datetime,
     fps: int,
     silence_aac: Path,
-    slots: list[int] | None = None,
+    slots: list[int],
     ffmpeg: str = "ffmpeg",
     payloads: list[bytes] | None = None,
 ) -> None:
-    """``h264_paths`` are consecutive pieces of one stream (a take can move to the SD card)."""
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     _ensure_silence_aac(silence_aac, ffmpeg)
     if payloads is None:
@@ -204,7 +232,6 @@ def mux_gopro_mp4(
     created = creation_time_iso(started)
     tick = max(1, round(_H264_TIMEBASE / fps))
     pts = slot_timestamps(slots, tick)
-    source = str(h264_paths[0]) if len(h264_paths) == 1 else "concat:" + "|".join(map(str, h264_paths))
     # moov stays after mdat. UMI reads the file locally; +faststart would rewrite it.
     cmd = [
         ffmpeg,
@@ -215,7 +242,7 @@ def mux_gopro_mp4(
         "-f",
         "h264",
         "-i",
-        source,
+        str(h264_path),
         "-stream_loop",
         "-1",
         "-i",
@@ -238,7 +265,13 @@ def mux_gopro_mp4(
         f"setts=pts={pts}:dts={pts}:duration={tick}",
         "-c:a",
         "copy",
-        "-shortest",
+        # To the end of the last frame's slot. -shortest would end at the whole second the GPMF
+        # track ends on, and with the default 10 s interleave window ffmpeg holds ~35 MB of
+        # packets, enough on the Pi to swap the collector out and drop frames.
+        "-t",
+        f"{(slots[-1] + 1) / fps:.6f}",
+        "-max_interleave_delta",
+        "1000000",
         "-metadata:s:v:0",
         f"creation_time={created}",
         "-metadata:s:v:0",
@@ -250,10 +283,18 @@ def mux_gopro_mp4(
         str(out_mp4),
     ]
     try:
-        proc = subprocess.run(cmd, check=False, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+        while True:
+            try:
+                _, err = proc.communicate(timeout=CACHE_DROP_S)
+                break
+            except subprocess.TimeoutExpired:
+                _drop_path_cache(h264_path)
+                _drop_path_cache(out_mp4)
+        _drop_path_cache(out_mp4)
         if proc.returncode != 0:
             out_mp4.unlink(missing_ok=True)
-            detail = (proc.stderr or "").strip()
+            detail = (err or "").strip()
             raise RuntimeError(detail or f"ffmpeg exited {proc.returncode}")
     finally:
         if mov_path is not None:

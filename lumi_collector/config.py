@@ -6,13 +6,17 @@ from typing import Any
 
 import yaml
 
+DENOISE_MODES = ("off", "fast")
+
 
 @dataclass(frozen=True)
 class VideoConfig:
     width: int = 1440
     height: int = 1080
     fps: int = 30
-    bitrate: int = 10_000_000
+    # Sharpened texture without denoise would take 19-23 Mbit/s. At 15 fast passes lose about 1 dB
+    # and resting detail nothing.
+    bitrate: int = 15_000_000
     lores_size: tuple[int, int] = (320, 240)
     # Full binned IMX477 mode. The encode size is this frame scaled to 4:3.
     sensor_width: int = 2028
@@ -20,8 +24,16 @@ class VideoConfig:
     sensor_bit_depth: int = 12
     tuning_file: str = "/home/pi/imx477_fisheye.json"
     stream_port: int = 8888
-    # Auto-exposure shutter ceiling, µs; gain makes up the light. 0 leaves the tuning's own.
+    # Auto-exposure shutter ceiling, µs; gain makes up the light up to max_gain. 0 leaves the
+    # tuning's own shutter and gain.
     max_exposure_us: int = 8000
+    # Within the IMX477's analogue range (about 22x): digital gain only amplifies noise.
+    max_gain: float = 16.0
+    # libcamera Sharpness; the tuning's own is 1. Above about 4, halos make false corners.
+    sharpness: float = 3.0
+    # ISP spatial denoise, "off" or "fast". Fast smooths away low-contrast texture such as
+    # wood grain; "high_quality" cannot keep up with 30 fps.
+    denoise: str = "off"
 
 
 @dataclass(frozen=True)
@@ -70,9 +82,6 @@ class PowerConfig:
 @dataclass(frozen=True)
 class CollectorConfig:
     data_dir: Path = Path("/home/pi/lumi")
-    # Takes record here (a RAM disk) so capture never waits on the SD card.
-    # None records straight into work_dir.
-    ram_work_dir: Path | None = None
     camera_serial: str = ""
     primarykey_url: str = "https://app.primarykey.ai"
     setup_port: int = 8080
@@ -113,6 +122,9 @@ def load_config(path: Path | None = None) -> CollectorConfig:
 
     video_raw = raw.get("video") or {}
     lores = video_raw.get("lores_size") or [320, 240]
+    denoise = str(video_raw.get("denoise") or "off")
+    if denoise not in DENOISE_MODES:
+        raise ValueError(f"video.denoise must be one of {', '.join(DENOISE_MODES)}, not {denoise!r}")
     imu_raw = raw.get("imu") or {}
     btn_raw = raw.get("buttons") or {}
     disp_raw = raw.get("display") or {}
@@ -121,7 +133,6 @@ def load_config(path: Path | None = None) -> CollectorConfig:
 
     return CollectorConfig(
         data_dir=Path(raw.get("data_dir") or "/home/pi/lumi"),
-        ram_work_dir=Path(raw["ram_work_dir"]) if raw.get("ram_work_dir") else None,
         camera_serial=str(raw.get("camera_serial") or ""),
         primarykey_url=str(raw.get("primarykey_url") or "https://app.primarykey.ai").rstrip("/"),
         setup_port=int(raw.get("setup_port") or 8080),
@@ -129,7 +140,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             width=int(video_raw.get("width") or 1440),
             height=int(video_raw.get("height") or 1080),
             fps=int(video_raw.get("fps") or 30),
-            bitrate=int(video_raw.get("bitrate") or 10_000_000),
+            bitrate=int(video_raw.get("bitrate") or 15_000_000),
             lores_size=(int(lores[0]), int(lores[1])),
             sensor_width=int(video_raw.get("sensor_width") or 2028),
             sensor_height=int(video_raw.get("sensor_height") or 1520),
@@ -137,6 +148,9 @@ def load_config(path: Path | None = None) -> CollectorConfig:
             tuning_file=str(video_raw.get("tuning_file") or "/home/pi/imx477_fisheye.json"),
             stream_port=int(video_raw.get("stream_port") or 8888),
             max_exposure_us=int(video_raw.get("max_exposure_us", 8000) or 0),
+            max_gain=float(video_raw.get("max_gain") or 16.0),
+            sharpness=float(video_raw.get("sharpness", 3.0)),
+            denoise=denoise,
         ),
         imu=ImuConfig(
             driver=str(imu_raw.get("driver") or "mpu6050"),

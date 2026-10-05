@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lumi_collector.gpmf import ImuSample, telemetry_json
+from lumi_collector.gpmf import ImuSample, telemetry_rows
 from lumi_collector.mux import mux_gopro_mp4
 
 
@@ -26,7 +26,7 @@ from lumi_collector.mux import mux_gopro_mp4
 class SealJob:
     filename: str
     started: datetime
-    h264_paths: list[Path]
+    h264_path: Path
     out_mp4: Path
     serial: str
     fps: int
@@ -46,36 +46,36 @@ def sample_array(samples: list[ImuSample]) -> np.ndarray:
     return np.array(rows, dtype=np.float64).reshape(-1, 8)
 
 
-def _samples(array: np.ndarray) -> list[ImuSample]:
-    return [ImuSample(t_s=r[0], acc_zxy=(r[1], r[2], r[3]), gyr_zxy=(r[4], r[5], r[6]), temp_c=r[7]) for r in array.tolist()]
-
-
 def write_job(job: SealJob, path: Path) -> None:
     path.write_bytes(pickle.dumps(job, protocol=pickle.HIGHEST_PROTOCOL))
 
 
+def write_sidecar(path: Path, job: SealJob) -> None:
+    """The .imu.json, a sample at a time: held whole, a 5 min take's samples take ~60 MB."""
+    with open(path, "w") as out:
+        out.write('{"1": {"streams": {')
+        for i, name in enumerate(("ACCL", "GYRO")):
+            out.write(f'{", " if i else ""}"{name}": {{"samples": [')
+            for k, row in enumerate(telemetry_rows(job.samples, start=job.started, stream_name=name)):
+                out.write(", " + json.dumps(row) if k else json.dumps(row))
+            out.write("]}")
+        frames = [{"t_s": t} for t in job.frame_times_s.tolist()]
+        out.write(f'}}, "frames": {json.dumps(frames)}, "dropped_frames": {json.dumps(job.dropped_frames)}')
+        out.write(f', "imu": {json.dumps(job.imu_info)}}}}}')
+
+
 def seal(job: SealJob) -> None:
-    samples = _samples(job.samples)
     mux_gopro_mp4(
-        job.h264_paths,
+        job.h264_path,
         job.out_mp4,
-        samples,
+        job.samples,
         serial=job.serial,
         started=job.started,
         fps=job.fps,
         silence_aac=job.silence_aac,
         slots=job.slots,
     )
-    take = {
-        "streams": {
-            "ACCL": {"samples": telemetry_json(samples, start=job.started, stream_name="ACCL")},
-            "GYRO": {"samples": telemetry_json(samples, start=job.started, stream_name="GYRO")},
-        },
-        "frames": [{"t_s": t} for t in job.frame_times_s.tolist()],
-        "dropped_frames": job.dropped_frames,
-        "imu": job.imu_info,
-    }
-    job.out_mp4.with_suffix(".imu.json").write_text(json.dumps({"1": take}))
+    write_sidecar(job.out_mp4.with_suffix(".imu.json"), job)
 
 
 def main(argv: list[str] | None = None) -> None:

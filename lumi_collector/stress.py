@@ -49,8 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     cfg = load_config(args.config)
-    ram = cfg.ram_work_dir.with_name(cfg.ram_work_dir.name + "_stress") if cfg.ram_work_dir else None
-    cfg = replace(cfg, data_dir=args.data_dir, ram_work_dir=ram)
+    cfg = replace(cfg, data_dir=args.data_dir)
     display = MockDisplay() if args.mock else St7735Display(cfg.display, reset=False)
     app = CollectorApp(cfg, display, mock=args.mock)
     app.power.open()

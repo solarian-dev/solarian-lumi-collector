@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import logging
 import os
 import queue
@@ -9,8 +10,9 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -20,17 +22,18 @@ import numpy as np
 from lumi_collector.catalog import Catalog, add_episode, next_gopro_name, save_catalog
 from lumi_collector.config import CollectorConfig
 from lumi_collector.imu import Imu
+from lumi_collector.mux import drop_cache
 from lumi_collector.seal import SealJob, sample_array, write_job
 
-# A take whose last frame is older than this when it stops had a camera that stopped sending.
+# A camera that has sent nothing for this long hit libcamera's frontend timeout (1 s), after
+# which it sends nothing until reopened.
 STALL_S = 2.0
 # A frame step over this many periods means the camera dropped frames.
 GAP_PERIODS = 1.5
-# 10 Mbit/s is 75 MB a minute. A take starts on the RAM disk with this much
-# memory available and moves to the SD card below the spill level.
-RAM_START_MB = 120
-RAM_SPILL_MB = 60
-MEMORY_CHECK_S = 1.0
+# About 17 s of a stuck SD card at 15 Mbit/s. Past it the camera waits on the card again.
+WRITE_BUFFER_BYTES = 32 * 1024 * 1024
+# How often the writer drops a take's pages from the page cache once they are on the card.
+CACHE_DROP_BYTES = 4 * 1024 * 1024
 
 
 def frame_slots(times_s: list[float], fps: float) -> list[int]:
@@ -54,13 +57,13 @@ def frame_gaps(slots: list[int]) -> list[dict]:
     ]
 
 
-def cap_exposure(tuning: dict, max_exposure_us: int, fps: float) -> dict:
-    """Limit every auto-exposure mode of a libcamera tuning to ``max_exposure_us``.
+def cap_exposure(tuning: dict, max_exposure_us: int, max_gain: float, fps: float) -> dict:
+    """Limit every auto-exposure mode of a libcamera tuning to ``max_exposure_us`` and ``max_gain``.
 
     The stock modes stretch the shutter to the whole frame (33 ms at 30 fps)
     indoors, and the motion of a handheld demo smears features ORB-SLAM3
-    needs. The top gain grows by the shutter time given up, so the image
-    keeps its brightness; past the sensor's analogue limit it is digital.
+    needs. The top gain grows by the shutter time given up, up to
+    ``max_gain``: beyond it a dim room comes out darker rather than noisier.
     """
     frame_us = 1e6 / fps
     for algo in tuning["algorithms"]:
@@ -72,18 +75,94 @@ def cap_exposure(tuning: dict, max_exposure_us: int, fps: float) -> dict:
                 longest = max(mode["shutter"])
                 mode["shutter"] = [min(s, max_exposure_us) for s in mode["shutter"]]
                 mode["gain"][-1] *= max(1.0, min(longest, frame_us) / max_exposure_us)
+                mode["gain"] = [min(g, max_gain) for g in mode["gain"]]
     return tuning
 
 
-def mem_available_mb() -> float | None:
-    try:
-        with open("/proc/meminfo") as handle:
-            for line in handle:
-                if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) / 1024
-    except OSError:
+class QueuedFile(io.BufferedIOBase):
+    """A file whose ``write`` returns at once while a thread of its own writes to disk.
+
+    Picamera2 writes each encoded frame on the thread that hands the encoder its
+    next input buffer, and the camera holds only about 200 ms of buffers. An SD
+    card write can stall longer than that, which drops frames, and over 1 s
+    times the camera out.
+    """
+
+    def __init__(self, path: Path, max_bytes: int = WRITE_BUFFER_BYTES):
+        super().__init__()
+        self._file = open(path, "wb")
+        self._max_bytes = max_bytes
+        self._chunks: deque[bytes] = deque()
+        self._queued = 0
+        self._ending = False
+        self._error: OSError | None = None
+        self._written = 0
+        self._dropped = 0
+        self._cond = threading.Condition()
+        self.peak_bytes = 0
+        self.waited = False
+        self._thread = threading.Thread(target=self._drain, name="lumi-h264-writer", daemon=True)
+        self._thread.start()
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data) -> int:
+        chunk = bytes(data)
+        with self._cond:
+            if self._queued + len(chunk) > self._max_bytes and self._error is None:
+                if not self.waited:
+                    logging.warning("write buffer full (%d MB); the camera waits on the SD card", self._max_bytes >> 20)
+                self.waited = True
+                while self._queued + len(chunk) > self._max_bytes and self._error is None:
+                    self._cond.wait()
+            # After a failed write the take is lost; close() raises it.
+            if self._error is None:
+                self._chunks.append(chunk)
+                self._queued += len(chunk)
+                self.peak_bytes = max(self.peak_bytes, self._queued)
+                self._cond.notify_all()
+        return len(chunk)
+
+    def flush(self) -> None:
         return None
-    return None
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        with self._cond:
+            self._ending = True
+            self._cond.notify_all()
+        self._thread.join()
+        self._file.close()
+        super().close()
+        if self._error is not None:
+            raise self._error
+
+    def _drain(self) -> None:
+        while True:
+            with self._cond:
+                while not self._chunks and not self._ending:
+                    self._cond.wait()
+                if not self._chunks:
+                    return
+                chunk = self._chunks.popleft()
+            try:
+                self._file.write(chunk)
+                self._written += len(chunk)
+                if self._written - self._dropped >= CACHE_DROP_BYTES:
+                    self._dropped = self._written
+                    drop_cache(self._file.fileno())
+            except OSError as exc:
+                with self._cond:
+                    self._error = exc
+                    self._chunks.clear()
+                    self._queued = 0
+                    self._cond.notify_all()
+                return
+            with self._cond:
+                self._queued -= len(chunk)
+                self._cond.notify_all()
 
 
 def _idle_priority() -> list[str]:
@@ -105,11 +184,11 @@ def start_seal_process(job_path: Path) -> subprocess.Popen:
 
 
 class Camera(Protocol):
+    def open(self) -> None: ...
     def start(self, h264_path: Path, on_gap: Callable[[], None]) -> None: ...
-    def spill(self, h264_path: Path) -> None: ...
     def stop(self) -> None: ...
     def close(self) -> None: ...
-    def preview_rgb(self): ...
+    def stalled(self) -> bool: ...
     def frame_times_s(self) -> list[float]: ...
 
 
@@ -118,27 +197,35 @@ class MockCamera:
         self.cfg = cfg
         self.h264_path: Path | None = None
         self.closed = False
+        self._started_s: float | None = None
+        self._stopped_s: float | None = None
+
+    def open(self) -> None:
+        self.closed = False
 
     def start(self, h264_path: Path, on_gap: Callable[[], None]) -> None:
+        self.closed = False
         self.h264_path = h264_path
         h264_path.parent.mkdir(parents=True, exist_ok=True)
         h264_path.write_bytes(b"")
-
-    def spill(self, h264_path: Path) -> None:
-        self.h264_path = h264_path
-        h264_path.write_bytes(b"")
+        self._started_s, self._stopped_s = time.monotonic(), None
 
     def stop(self) -> None:
-        return None
+        self._stopped_s = time.monotonic()
 
     def close(self) -> None:
         self.closed = True
 
-    def preview_rgb(self):
-        return None
+    def stalled(self) -> bool:
+        return False
 
     def frame_times_s(self) -> list[float]:
-        return []
+        """A frame when the take started, then one every frame period until it stopped."""
+        if self._started_s is None:
+            return []
+        fps = self.cfg.video.fps
+        end = self._stopped_s if self._stopped_s is not None else time.monotonic()
+        return [self._started_s + k / fps for k in range(1 + int((end - self._started_s) * fps))]
 
 
 class Picamera2Camera:
@@ -146,84 +233,94 @@ class Picamera2Camera:
         self.cfg = cfg
         self._picam = None
         self._encoder = None
+        self._file: QueuedFile | None = None
         self._written_us: list[int] = []
-        self._spill_to: Path | None = None
+        self._last_request_s = 0.0
+
+    def open(self) -> None:
+        """Start the sensor. It stays streaming between takes; close() is the only release."""
+        if self._picam is not None:
+            return
+        from libcamera import controls as lc
+        from picamera2 import Picamera2
+
+        video = self.cfg.video
+        tuning = Path(video.tuning_file)
+        if tuning.is_file():
+            tuning_data = Picamera2.load_tuning_file(str(tuning))
+            if video.max_exposure_us:
+                tuning_data = cap_exposure(tuning_data, video.max_exposure_us, video.max_gain, video.fps)
+            picam = Picamera2(tuning=tuning_data)
+        else:
+            picam = Picamera2()
+        # Read the whole 2028x1520 mode and scale it. A centered 4:3 crop of
+        # that mode is the full frame, so the fisheye circle stays in view.
+        config = picam.create_video_configuration(
+            main={"size": (video.width, video.height), "format": "YUV420"},
+            lores={"size": video.lores_size, "format": "YUV420"},
+            sensor={
+                "output_size": (video.sensor_width, video.sensor_height),
+                "bit_depth": video.sensor_bit_depth,
+            },
+            controls={
+                "FrameRate": video.fps,
+                "Sharpness": video.sharpness,
+                "NoiseReductionMode": {
+                    "off": lc.draft.NoiseReductionModeEnum.Off,
+                    "fast": lc.draft.NoiseReductionModeEnum.Fast,
+                }[video.denoise],
+            },
+        )
+        try:
+            picam.configure(config)
+            # Every completed request, recording or not: what stalled() watches.
+            picam.post_callback = self._request_done
+            self._last_request_s = time.monotonic()
+            picam.start()
+        except Exception:
+            picam.close()
+            raise
+        self._picam = picam
+
+    def _request_done(self, _request) -> None:
+        self._last_request_s = time.monotonic()
 
     def start(self, h264_path: Path, on_gap: Callable[[], None]) -> None:
-        from picamera2 import Picamera2
         from picamera2.encoders import H264Encoder
         from picamera2.outputs import FileOutput
 
+        self.open()
         h264_path.parent.mkdir(parents=True, exist_ok=True)
-        picam = self._picam
         video = self.cfg.video
-        # Held open across takes. close() is the only release.
-        if picam is None:
-            tuning = Path(video.tuning_file)
-            if tuning.is_file():
-                tuning_data = Picamera2.load_tuning_file(str(tuning))
-                if video.max_exposure_us:
-                    tuning_data = cap_exposure(tuning_data, video.max_exposure_us, video.fps)
-                picam = Picamera2(tuning=tuning_data)
-            else:
-                picam = Picamera2()
-            # Read the whole 2028x1520 mode and scale it. A centered 4:3 crop of
-            # that mode is the full frame, so the fisheye circle stays in view.
-            config = picam.create_video_configuration(
-                main={"size": (video.width, video.height), "format": "YUV420"},
-                lores={"size": video.lores_size, "format": "YUV420"},
-                sensor={
-                    "output_size": (video.sensor_width, video.sensor_height),
-                    "bit_depth": video.sensor_bit_depth,
-                },
-                controls={"FrameRate": video.fps},
-            )
-            picam.configure(config)
-            self._picam = picam
         written = self._written_us = []
-        self._spill_to = None
         gap_us = GAP_PERIODS * 1e6 / video.fps
-        camera = self
 
         class TimedFileOutput(FileOutput):
             # Only frames that reach the file: FileOutput skips to the first keyframe.
             def _write(self, frame, timestamp=None):
-                spill = camera._spill_to
-                if spill is not None:
-                    # Swapped here, between two frames on the output thread. The
-                    # fileoutput setter would wait for the next keyframe.
-                    camera._spill_to = None
-                    self._fileoutput.close()
-                    self._fileoutput = open(spill, "wb")
                 super()._write(frame, timestamp)
                 if written and timestamp - written[-1] > gap_us:
                     on_gap()
                 written.append(timestamp)
 
-        encoder = self._encoder = H264Encoder(bitrate=video.bitrate, framerate=video.fps)
-        picam.start_encoder(encoder, TimedFileOutput(str(h264_path)))
-        if picam.started:
-            return
+        file = self._file = QueuedFile(h264_path)
+        # A keyframe a second; the driver's default is every 60 frames.
+        encoder = self._encoder = H264Encoder(bitrate=video.bitrate, iperiod=video.fps, framerate=video.fps)
         try:
-            picam.start()
+            self._picam.start_encoder(encoder, TimedFileOutput(file))
         except Exception:
-            picam.stop_encoder()
+            self._file = None
+            file.close()
             raise
 
-    def spill(self, h264_path: Path) -> None:
-        self._spill_to = h264_path
-
     def stop(self) -> None:
-        picam = self._picam
-        if picam is None:
-            return
-        picam.stop_encoder()
-        frames = self.frame_times_s()
-        # After "Camera frontend has timed out" libcamera sends nothing until
-        # the camera is reopened; close it so the next take does that.
-        if not frames or time.monotonic() - frames[-1] > STALL_S:
-            logging.warning("camera stalled (%d frames); reopening for the next take", len(frames))
-            self.close()
+        if self._picam is not None:
+            self._picam.stop_encoder()
+        file, self._file = self._file, None
+        if file is not None:
+            # Drains what the card has not taken yet, so the .h264 is whole for the save.
+            file.close()
+            logging.info("write buffer peak %.1f MB%s", file.peak_bytes / 1e6, ", full" if file.waited else "")
 
     def close(self) -> None:
         picam = self._picam
@@ -232,11 +329,8 @@ class Picamera2Camera:
         picam.close()
         self._picam = None
 
-    def preview_rgb(self):
-        picam = self._picam
-        if picam is None:
-            return None
-        return picam.capture_array("lores")
+    def stalled(self) -> bool:
+        return self._picam is not None and time.monotonic() - self._last_request_s > STALL_S
 
     def frame_times_s(self) -> list[float]:
         """Sensor start-of-exposure of each written frame, time.monotonic seconds.
@@ -254,8 +348,7 @@ class Picamera2Camera:
 class LiveRecording:
     filename: str
     started: datetime
-    # Consecutive pieces of the stream: RAM disk first, then the SD card if memory ran low.
-    h264_paths: list[Path] = field(default_factory=list)
+    h264_path: Path
 
 
 class Recorder:
@@ -302,16 +395,6 @@ class Recorder:
             return 0.0
         return (datetime.now(timezone.utc) - live.started).total_seconds()
 
-    def _take_dir(self) -> Path:
-        ram = self.cfg.ram_work_dir
-        # The RAM disk's mount (/dev/shm) exists on the Pi, not on a dev machine.
-        if ram is not None and ram.parent.is_dir():
-            available = mem_available_mb()
-            if available is None or available >= RAM_START_MB:
-                return ram
-            logging.warning("%.0f MB of memory available; recording to the SD card", available)
-        return self.cfg.work_dir
-
     def start(self) -> str:
         if self._live is not None:
             raise RuntimeError("already recording")
@@ -319,19 +402,17 @@ class Recorder:
             name = next_gopro_name(self._catalog)
             save_catalog(self.cfg.catalog_path, self._catalog)
             self._catalog_dirty = False
-        work = self._take_dir()
-        work.mkdir(parents=True, exist_ok=True)
-        h264_path = work / f"{Path(name).stem}.h264"
+        self.cfg.work_dir.mkdir(parents=True, exist_ok=True)
+        h264_path = self.cfg.work_dir / f"{Path(name).stem}.h264"
         started = datetime.now(timezone.utc)
         # Before the camera, so the IMU covers the first frame.
         self.imu.start_stream()
-        live = LiveRecording(filename=name, started=started, h264_paths=[h264_path])
-        self._live = live
+        self._live = LiveRecording(filename=name, started=started, h264_path=h264_path)
         self.camera.start(h264_path, self._on_gap)
         # Per take, so a straggler IMU thread cannot be cleared back into its loop.
         stop = threading.Event()
         self._stop = stop
-        self._thread = threading.Thread(target=self._imu_loop, args=(stop, live), daemon=True)
+        self._thread = threading.Thread(target=self._imu_loop, args=(stop,), daemon=True)
         self._thread.start()
         return name
 
@@ -350,7 +431,25 @@ class Recorder:
             if self._seal_proc is not None:
                 self._seal_proc.send_signal(signal.SIGCONT)
 
-    def stop(self) -> None:
+    def check_camera(self) -> bool:
+        """Reopen a camera that stopped sending; True if it had. A take it was recording ends there.
+
+        The take is not resumed: a hole of seconds in a demo is no use to SLAM.
+        """
+        if not self.camera.stalled():
+            return False
+        logging.warning("the camera sent nothing for %.0f s; reopening it", STALL_S)
+        if self._live is not None:
+            self.stop()
+        self.camera.close()
+        try:
+            self.camera.open()
+        except Exception:
+            logging.exception("reopening the camera failed; the next take tries again")
+        return True
+
+    def stop(self) -> bool:
+        """End the take and queue its save. False if the camera sent no frame: nothing is saved."""
         live = self._live
         if live is None:
             raise RuntimeError("not recording")
@@ -381,11 +480,15 @@ class Recorder:
             if self._catalog_dirty:
                 save_catalog(self.cfg.catalog_path, self._catalog)
                 self._catalog_dirty = False
+        if not frame_times:
+            logging.warning("%s: the camera sent no frames; nothing to save", live.filename)
+            live.h264_path.unlink(missing_ok=True)
+            return False
         self._seal_queue.put(
             SealJob(
                 filename=live.filename,
                 started=live.started,
-                h264_paths=list(live.h264_paths),
+                h264_path=live.h264_path,
                 out_mp4=self.cfg.raw_videos_dir / live.filename,
                 serial=self._serial,
                 fps=fps,
@@ -398,6 +501,7 @@ class Recorder:
                 duration_s=duration,
             )
         )
+        return True
 
     def close(self) -> None:
         if self._closed:
@@ -427,7 +531,7 @@ class Recorder:
 
     def _seal(self, job: SealJob) -> None:
         job.out_mp4.parent.mkdir(parents=True, exist_ok=True)
-        job_path = job.h264_paths[0].with_suffix(".job")
+        job_path = job.h264_path.with_suffix(".job")
         t0 = time.monotonic()
         write_job(job, job_path)
         with self._seal_proc_lock:
@@ -456,27 +560,15 @@ class Recorder:
                 self._catalog_dirty = True
             else:
                 save_catalog(self.cfg.catalog_path, self._catalog)
-        for path in job.h264_paths:
-            path.unlink(missing_ok=True)
+        job.h264_path.unlink(missing_ok=True)
         logging.info("sealed %s in %.2f s", job.filename, time.monotonic() - t0)
 
-    def _imu_loop(self, stop: threading.Event, live: LiveRecording) -> None:
+    def _imu_loop(self, stop: threading.Event) -> None:
         period = self.imu.poll_interval_s
         next_t = time.monotonic()
-        next_memory_check = next_t + MEMORY_CHECK_S
-        ram = self.cfg.ram_work_dir
         while not stop.is_set():
             with self._lock:
                 self.imu.poll()
-            now = time.monotonic()
-            if ram is not None and now >= next_memory_check:
-                next_memory_check = now + MEMORY_CHECK_S
-                available = mem_available_mb()
-                if available is not None and available < RAM_SPILL_MB and live.h264_paths[-1].parent == ram:
-                    spill = self.cfg.work_dir / f"{Path(live.filename).stem}.part2.h264"
-                    logging.warning("%s: %.0f MB of memory left; continuing on the SD card", live.filename, available)
-                    live.h264_paths.append(spill)
-                    self.camera.spill(spill)
             next_t += period
             delay = next_t - time.monotonic()
             if delay > 0:

@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """Record SLAM-friendly video from an IMX477 (Arducam / Pi HQ) on a Pi Zero 2 W.
 
-Runs the 2028x1520 2x2-binned full-field-of-view sensor mode at 40 fps and
+Runs the 2028x1520 2x2-binned full-field-of-view sensor mode at 30 fps and
 encodes in hardware with one of:
 
-* ``--codec mjpeg`` (default): full 2028x1520. Every frame is an independent
-  intra frame, so there are no inter-frame motion artifacts.
+* ``--codec mjpeg`` (default): every frame is an independent intra frame, so
+  there are no inter-frame motion artifacts. The hardware JPEG encoder keeps
+  only the first 1920 columns of the 2028x1520 frame, so the stream is
+  1920x1520. Above about 30 fps it cannot keep up and frames are lost.
 * ``--codec h264``: the ISP scales to 1440x1080, which keeps 4:3 and the full
   field of view. The hardware H.264 encoder stops at about 1920x1080 (level 4.2),
   so it cannot take 2028x1520. Files are several times smaller.
 
 Auto exposure is kept on but capped: the AGC tuning is rewritten so that the
 shutter never exceeds ``--max-exposure-us`` and any extra exposure needed comes
-from analogue gain (up to ``--max-gain``). Sharpening is raised, denoise is
-turned off by default, and AWB is locked after warm-up for photometric
-consistency between frames.
+from gain (up to ``--max-gain``; past the sensor's analogue limit it is digital).
+Sharpening is raised, denoise is turned off by default, and AWB is locked after
+warm-up for photometric consistency between frames.
 
 Each session directory contains:
 
 * ``video.mjpeg`` or ``video.h264`` - raw elementary stream
-* ``frames.csv``   - one row per encoded frame: sensor timestamp, exposure, gain
+* ``frames.csv``   - one row per frame in the stream: sensor timestamp, size, keyframe, exposure, gain
+* ``refs.npz``     - ``--refs`` uncompressed Y planes of the encoded stream with their sensor timestamps
 * ``session.json`` - settings, camera properties, clock offsets
 
 Usage::
@@ -49,11 +52,16 @@ SENSOR_BIT_DEPTH = 12
 SENSOR_MODE_MAX_FPS = 40.0
 MIN_SHUTTER_US = 100
 
+# "size" is the main stream handed to the encoder, "stream_size" what ends up in the file.
 CODECS = {
-    "mjpeg": {"size": SENSOR_MODE, "bitrate": 50e6, "ext": "mjpeg"},
-    "h264": {"size": (1440, 1080), "bitrate": 15e6, "ext": "h264"},
+    "mjpeg": {"size": SENSOR_MODE, "stream_size": (1920, 1520), "bitrate": 50e6, "ext": "mjpeg"},
+    "h264": {"size": (1440, 1080), "stream_size": (1440, 1080), "bitrate": 15e6, "ext": "h264"},
 }
 H264_MAX_BITRATE = 25e6
+
+METADATA_FIELDS = ("ExposureTime", "AnalogueGain", "DigitalGain", "Lux", "ColourTemperature", "FocusFoM")
+CSV_HEADER = ["frame", "sensor_timestamp_ns", "bytes", "keyframe", "exposure_us", "analogue_gain",
+              "digital_gain", "lux", "colour_temperature_k", "focus_fom"]
 
 _SENSOR_CLOCK = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
 
@@ -120,15 +128,42 @@ def frame_stats(timestamps_ns: list[int], fps: float) -> dict:
     }
 
 
+def frame_rows(written: list[tuple[int, int, bool]], first_us: int, metadata: dict[int, tuple]) -> list[list]:
+    """One CSV row per frame that reached the file.
+
+    ``written`` holds the output timestamp (microseconds since the encoder's
+    first frame), size and keyframe flag of each written frame. ``metadata``
+    maps ``SensorTimestamp // 1000`` to ``(SensorTimestamp, fields)`` for every
+    frame handed to the encoder, a superset of the written ones.
+    """
+    rows = []
+    for index, (ts_us, nbytes, keyframe) in enumerate(written):
+        sensor_us = first_us + ts_us
+        sensor_ns, fields = metadata.get(sensor_us, (sensor_us * 1000, (None,) * len(METADATA_FIELDS)))
+        rows.append([index, sensor_ns, nbytes, int(keyframe), *fields])
+    return rows
+
+
+def ref_schedule(count: int, duration_s: float) -> list[float]:
+    """Seconds into the take at which to grab uncompressed reference frames."""
+    if duration_s > 0:
+        return [(k + 0.5) * duration_s / count for k in range(count)]
+    return [2.5 * (k + 1) for k in range(count)]
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--output", type=Path, default=Path("recordings"), help="parent directory for sessions")
+    p.add_argument("--label", default="", help="appended to the session directory name")
     p.add_argument("--duration", type=float, default=0.0, help="seconds to record; 0 = until Ctrl-C")
+    p.add_argument("--rest", type=float, default=0.0,
+                   help="seconds at the start of the take to keep the camera still; the progress line says when to move")
     p.add_argument("--camera", type=int, default=0, help="libcamera camera index")
-    p.add_argument("--fps", type=float, default=SENSOR_MODE_MAX_FPS)
+    p.add_argument("--fps", type=float, default=30.0)
     p.add_argument("--max-exposure-us", type=int, default=4000,
                    help="auto-exposure shutter cap in microseconds (motion blur limit)")
-    p.add_argument("--max-gain", type=float, default=8.0, help="auto-exposure analogue gain cap")
+    p.add_argument("--max-gain", type=float, default=8.0,
+                   help="auto-exposure gain cap; past the sensor's analogue limit (~22x) the rest is digital")
     p.add_argument("--shutter-us", type=int, default=None,
                    help="fixed shutter in microseconds instead of capped auto exposure")
     p.add_argument("--gain", type=float, default=None, help="fixed analogue gain (with --shutter-us: full manual)")
@@ -138,11 +173,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--awb-lock-after", type=float, default=2.0,
                    help="seconds of auto white balance before locking colour gains; negative = never lock")
     p.add_argument("--codec", choices=sorted(CODECS), default="mjpeg",
-                   help="mjpeg: 2028x1520; h264: scaled to 1440x1080 (hardware limit)")
+                   help="mjpeg: 1920x1520 (the encoder crops the 2028 width); h264: scaled to 1440x1080")
     p.add_argument("--bitrate", type=float, default=None,
                    help="bits/s; default 50e6 for mjpeg, 15e6 for h264")
-    p.add_argument("--iperiod", type=int, default=40,
-                   help="h264 only: frames between keyframes (40 = one per second at 40 fps)")
+    p.add_argument("--iperiod", type=int, default=30,
+                   help="h264 only: frames between keyframes (30 = one per second at 30 fps)")
+    p.add_argument("--refs", type=int, default=8,
+                   help="uncompressed Y frames to save alongside the stream, for measuring compression loss")
     p.add_argument("--buffer-count", type=int, default=4,
                    help="camera buffers; the Zero 2 W's 512 MB leaves little CMA")
     p.add_argument("--tuning-file", default="imx477.json", help="libcamera tuning file to start from")
@@ -163,6 +200,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error(f"--bitrate above {H264_MAX_BITRATE:.0f} is not supported by the Pi H.264 encoder")
     if args.iperiod < 1:
         p.error("--iperiod must be >= 1")
+    if args.refs < 0:
+        p.error("--refs must be >= 0")
     return args
 
 
@@ -190,11 +229,12 @@ def build_controls(args: argparse.Namespace) -> dict:
     return ctrls
 
 
-def make_logging_encoder(args: argparse.Namespace, writer: csv.writer, timestamps: list[int]):
-    """A hardware encoder that logs metadata for exactly the frames it encodes.
+def make_logging_encoder(args: argparse.Namespace, metadata: dict[int, tuple]):
+    """A hardware encoder that stashes the metadata of every frame handed to it.
 
-    Hooking the encoder (rather than a Picamera2 post_callback) keeps CSV rows
-    aligned one-to-one with frames in the stream even if the encoder skips some.
+    The encoder can take a frame and never emit it, so rows are only written
+    for frames that reach the file (see ``make_logging_output``); this map is
+    joined to them by sensor timestamp.
     """
     from picamera2.encoders import H264Encoder, MJPEGEncoder
 
@@ -206,28 +246,44 @@ def make_logging_encoder(args: argparse.Namespace, writer: csv.writer, timestamp
 
     hook = "_encode" if hasattr(base, "_encode") else "encode"
     parent = getattr(base, hook)
-    counter = [0]
 
     def logged(self, stream, request):
         md = request.get_metadata()
         ts = md.get("SensorTimestamp")
-        writer.writerow([
-            counter[0],
-            ts,
-            md.get("ExposureTime"),
-            md.get("AnalogueGain"),
-            md.get("DigitalGain"),
-            md.get("Lux"),
-            md.get("ColourTemperature"),
-            md.get("FocusFoM"),
-        ])
-        counter[0] += 1
         if ts is not None:
-            timestamps.append(int(ts))
+            # Same rounding as Encoder._timestamp, so output timestamps map back exactly.
+            metadata[int(ts / 1000)] = (int(ts), tuple(md.get(k) for k in METADATA_FIELDS))
         return parent(self, stream, request)
 
     cls = type(f"Logging{base.__name__}", (base,), {hook: logged})
     return cls(**kwargs)
+
+
+def make_logging_output(path: Path, written: list[tuple[int, int, bool]]):
+    """A FileOutput that records timestamp, size and keyframe flag of each frame it writes."""
+    from picamera2.outputs import FileOutput
+
+    class LoggingFileOutput(FileOutput):
+        def outputframe(self, frame, keyframe=True, timestamp=None, packet=None, audio=False):
+            self._keyframe = keyframe
+            super().outputframe(frame, keyframe, timestamp, packet, audio)
+
+        def _write(self, frame, timestamp=None):
+            super()._write(frame, timestamp)
+            written.append((timestamp, len(frame), self._keyframe))
+
+    return LoggingFileOutput(str(path))
+
+
+def capture_ref(picam2, size: tuple[int, int]):
+    """Sensor timestamp and Y plane of the next main-stream frame, as the encoder receives it."""
+    request = picam2.capture_request()
+    try:
+        y = request.make_array("main")[: size[1], : size[0]].copy()
+        ts = request.get_metadata()["SensorTimestamp"]
+    finally:
+        request.release()
+    return int(ts), y
 
 
 def configure_camera(picam2, args: argparse.Namespace):
@@ -263,8 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     try:
+        import numpy as np
         from picamera2 import Picamera2
-        from picamera2.outputs import FileOutput
     except ImportError:
         print("picamera2 not found: sudo apt install -y python3-picamera2", file=sys.stderr)
         return 1
@@ -275,20 +331,20 @@ def main(argv: list[str] | None = None) -> int:
     picam2 = Picamera2(camera_num=args.camera, tuning=tuning)
     config = configure_camera(picam2, args)
 
-    session = args.output / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.codec}"
+    name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.codec}" + (f"_{args.label}" if args.label else "")
+    session = args.output / name
     session.mkdir(parents=True, exist_ok=False)
 
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
 
-    timestamps: list[int] = []
-    csv_file = open(session / "frames.csv", "w", newline="", buffering=1 << 16)
-    writer = csv.writer(csv_file)
-    writer.writerow(["frame", "sensor_timestamp_ns", "exposure_us", "analogue_gain",
-                     "digital_gain", "lux", "colour_temperature_k", "focus_fom"])
-    encoder = make_logging_encoder(args, writer, timestamps)
-    out_size = CODECS[args.codec]["size"]
+    metadata: dict[int, tuple] = {}
+    written: list[tuple[int, int, bool]] = []
+    refs: list[tuple[int, object]] = []
+    encoder = make_logging_encoder(args, metadata)
+    main_size = CODECS[args.codec]["size"]
+    stream_size = CODECS[args.codec]["stream_size"]
     video_path = session / f"video.{CODECS[args.codec]['ext']}"
 
     realtime_ns = time.time_ns()
@@ -297,7 +353,9 @@ def main(argv: list[str] | None = None) -> int:
         "camera_model": picam2.camera_properties.get("Model"),
         "camera_properties": {k: str(v) for k, v in picam2.camera_properties.items()},
         "sensor_mode": list(SENSOR_MODE),
-        "resolution": list(out_size),
+        "main_size": list(main_size),
+        "resolution": list(stream_size),
+        "label": args.label,
         "fps": args.fps,
         "codec": args.codec,
         "bitrate": args.bitrate,
@@ -309,6 +367,9 @@ def main(argv: list[str] | None = None) -> int:
         "sharpness": args.sharpness,
         "denoise": args.denoise,
         "awb_lock_after_s": args.awb_lock_after,
+        "rest_s": args.rest,
+        "buffer_count": args.buffer_count,
+        "tuning_file": args.tuning_file,
         "agc_exposure_modes_capped": n_modes,
         "camera_config": str(config),
         "sensor_timestamp_clock": "CLOCK_BOOTTIME" if hasattr(time, "CLOCK_BOOTTIME") else "CLOCK_MONOTONIC",
@@ -316,35 +377,50 @@ def main(argv: list[str] | None = None) -> int:
         "started_at": datetime.now().isoformat(),
     }
 
-    print(f"Recording {out_size[0]}x{out_size[1]} @ {args.fps:g} fps {args.codec.upper()} "
+    print(f"Recording {stream_size[0]}x{stream_size[1]} @ {args.fps:g} fps {args.codec.upper()} "
           f"at {args.bitrate / 1e6:g} Mbit/s to {session}")
     if args.shutter_us is None:
         print(f"Auto exposure capped at {args.max_exposure_us} us, gain <= {args.max_gain:g}")
     else:
         print(f"Fixed shutter {args.shutter_us} us, gain {'auto' if args.gain is None else args.gain}")
 
+    ref_times = ref_schedule(args.refs, args.duration)
     awb_thread = None
     try:
-        picam2.start_recording(encoder, FileOutput(str(video_path)))
+        picam2.start_recording(encoder, make_logging_output(video_path, written))
         if args.awb_lock_after >= 0:
             awb_thread = threading.Thread(target=lock_awb_later, args=(picam2, args.awb_lock_after, stop),
                                           daemon=True)
             awb_thread.start()
         started = time.monotonic()
         while not stop.is_set():
-            if args.duration > 0 and time.monotonic() - started >= args.duration:
-                break
-            stop.wait(1.0)
             elapsed = time.monotonic() - started
-            print(f"\r{elapsed:7.1f}s  {len(timestamps):6d} frames", end="", flush=True)
+            if args.duration > 0 and elapsed >= args.duration:
+                break
+            if ref_times and elapsed >= ref_times[0]:
+                ref_times.pop(0)
+                refs.append(capture_ref(picam2, main_size))
+            cue = "" if args.rest <= 0 else ("  REST" if elapsed < args.rest else "  MOVE")
+            print(f"\r{elapsed:7.1f}s  {len(written):6d} frames{cue}", end="", flush=True)
+            stop.wait(0.1)
         print()
     finally:
         stop.set()
         picam2.stop_recording()
         picam2.close()
-        csv_file.close()
 
-    stats = frame_stats(timestamps, args.fps)
+    rows = frame_rows(written, encoder.firsttimestamp or 0, metadata)
+    with open(session / "frames.csv", "w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(CSV_HEADER)
+        writer.writerows(rows)
+    if refs:
+        np.savez(session / "refs.npz", sensor_ns=np.array([ts for ts, _ in refs], dtype=np.int64),
+                 y=np.stack([y for _, y in refs]))
+
+    stats = frame_stats([row[1] for row in rows], args.fps)
+    stats["frames_to_encoder"] = len(metadata)
+    stats["refs"] = len(refs)
     stats["file_bytes"] = video_path.stat().st_size if video_path.exists() else 0
     duration_s = stats["frames"] / stats["measured_fps"] if stats["measured_fps"] else None
     stats["actual_mbit_per_s"] = stats["file_bytes"] * 8 / duration_s / 1e6 if duration_s else None
@@ -354,10 +430,9 @@ def main(argv: list[str] | None = None) -> int:
 
     fps_txt = f"{stats['measured_fps']:.2f}" if stats["measured_fps"] else "n/a"
     rate_txt = f"{stats['actual_mbit_per_s']:.1f} Mbit/s" if stats["actual_mbit_per_s"] else "n/a"
+    lost = stats["frames_to_encoder"] - stats["frames"]
     print(f"{stats['frames']} frames, measured {fps_txt} fps, {stats['dropped_frames']} dropped, "
-          f"{stats['file_bytes'] / 1e6:.1f} MB ({rate_txt})")
-    print(f"Mux without re-encoding: ffmpeg -framerate {args.fps:g} -i {video_path} "
-          f"-c copy {session / 'video.mkv'}")
+          f"{lost} lost in the encoder, {stats['file_bytes'] / 1e6:.1f} MB ({rate_txt})")
     return 0
 
 

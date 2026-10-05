@@ -184,19 +184,40 @@ not the `gpmd` track, because the sidecar keeps each sample's time:
   as warnings, counted per episode in `catalog.json`, and shown on screen.
 
 Recording and saving are split so the save never costs a frame, even back to
-back. A take records to a RAM disk (`ram_work_dir`, `/dev/shm/lumi`) and moves
-to the SD card mid-take only if memory runs low. Each finished take is saved
-by `python -m lumi_collector.seal` in its own process, at idle CPU and I/O
-priority on core 3 (the collector runs on cores 0 to 2). If a take drops a
-frame anyway, saves pause until it stops. `python -m lumi_collector.stress`
-records back-to-back takes (stop `lumi-collector` first) and reports every
-dropped frame.
+back. A take writes straight to the SD card (`work/`), so it can be as long as
+the card has room for. The camera holds only about 200 ms of frames, and a
+card write can stall for longer, so the encoder hands its output to a 32 MB
+buffer that a thread of its own writes out; the camera never waits on the
+card unless it stalls for about 17 s. Each finished take is saved by
+`python -m lumi_collector.seal` in its own process, at idle CPU and I/O
+priority on core 3 (the collector runs on cores 0 to 2). With 415 MB, memory is
+what the camera loses frames to, so: takes and saves drop their video from
+the page cache once it is on the card (read back by the save, it would
+otherwise push the collector into swap); the save handles a take's IMU
+samples as one array, about 30 MB for a 5 min take; and `deploy/setup.sh`
+caps the kernel's unwritten-data buffer at 16 MB and shrinks the contiguous
+memory the display overlay reserves from 256 MB to 128 MB (`cma-128`, next
+boot). If a take drops a frame anyway, saves pause until it stops. `python -m lumi_collector.stress` records back-to-back takes (stop
+`lumi-collector` first) and reports every dropped frame.
+
+The collector watches the camera between takes as well as during them. After
+libcamera's "Camera frontend has timed out" the camera sends nothing until it
+is reopened; if 2 s pass without a frame, the collector reopens it. A take
+it was recording ends at that point (what was recorded is saved) and the
+screen shows "camera stalled": record that take again. A take that got no
+frame at all is not saved.
 
 Auto-exposure never holds the shutter open past `video.max_exposure_us`
 (8 ms). The stock IMX477 tuning lets it stretch to the whole 33 ms frame
 indoors, which smears the features SLAM tracks while the gripper moves.
-Gain makes up the light, digitally beyond the sensor's analogue limit, so a
-dim room looks noisier rather than darker.
+Gain makes up the light up to `video.max_gain` (16x, analogue), so a very dim
+room comes out darker rather than drowned in digital noise. The ISP sharpens
+at 3 (`video.sharpness`) with denoise off (`video.denoise`): its fast denoise
+smooths away low-contrast texture such as wood grain. Unconstrained, that
+look takes 19 to 23 Mbit/s. `video.bitrate` holds it to 15 Mbit/s, about
+110 MB a minute; fast passes lose about 1 dB.
+[tools/](tools/README.md) has the recorder, sweep and scorer these settings
+came from.
 - `imu`: how the samples were timed. The MPU-6050 streams through its FIFO:
   the chip queues samples on its own clock, the recorder drains it every
   40 ms, and sample times come from the sample count fitted to the drain

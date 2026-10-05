@@ -102,6 +102,11 @@ class CollectorApp:
         pressed = pressed or {}
         for event in self.buttons.poll(pressed):
             self._dispatch(event)
+        recording = self.recorder.recording
+        if self.recorder.check_camera() and recording:
+            handle(self.state, Event.RECORD_SEALED, [e.filename for e in self.catalog.visible()])
+            self.state.status = "camera stalled"
+            self._dropped_status = ""
         if self.recorder.recording:
             self.state.rec_s = self.recorder.elapsed_s()
         if self.state.screen is Screen.PLAYBACK:
@@ -128,7 +133,7 @@ class CollectorApp:
             self.recorder.start()
         elif action is Action.STOP_RECORD:
             try:
-                self.recorder.stop()
+                saved = self.recorder.stop()
             except Exception:
                 logging.exception("stop recording failed")
                 self.state.screen = Screen.HOME
@@ -140,7 +145,9 @@ class CollectorApp:
                     Event.RECORD_SEALED,
                     [e.filename for e in self.catalog.visible()],
                 )
-                if self._dropped_status:
+                if not saved:
+                    self.state.status = "camera stalled"
+                elif self._dropped_status:
                     self.state.status = self._dropped_status
                     self._dropped_status = ""
         elif action is Action.DELETE:

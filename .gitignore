@@ -9,3 +9,5 @@ build/
 *.mp4
 *.h264
 *.gpmd
+.DS_Store
+tools/recordings/
