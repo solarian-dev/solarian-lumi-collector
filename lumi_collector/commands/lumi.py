@@ -6,6 +6,7 @@ import argparse
 import os
 import shutil
 import sys
+from pathlib import Path
 
 from solarian.cli import BaseCommand, CommandRegistry
 
@@ -22,23 +23,40 @@ class LumiCommand(BaseCommand):
     rpicam-vid. This opens that H.264 stream in ffplay so you can check the
     picture and adjust the lens.
 
+    --policy shows the 224x224 image the policy would get instead: the frame
+    remapped into GoPro Max Lens geometry with the camera's calibration, then
+    cropped and masked like the UMI skill does. Use it to place the camera on
+    the gripper. It needs solarian-umi-skill installed and a calibration from
+    solarian umi-calibrate-lumi; run it from the project directory so
+    conf/cameras/<serial>.json is found.
+
     Requires ffmpeg (the ffplay binary) on this machine.
     """
-    usage = "--stream [--host HOST] [--port PORT]"
+    usage = "--stream [--policy [--calibration PATH]] [--host HOST] [--port PORT]"
     options = {
         "--stream": "Open the live view. The collector must be on Stream video.",
+        "--policy": "Show the remapped, masked 224x224 policy image. s saves a PNG, q quits.",
+        "--calibration PATH": "Lumi calibration for --policy (default: the one conf/cameras/<serial>.json).",
         "--host HOST": f"Collector hostname (default: {DEFAULT_STREAM_HOST}).",
         "--port PORT": f"Listener port (default: {DEFAULT_STREAM_PORT}).",
     }
     examples = (
         "solarian lumi --stream",
         "solarian lumi --stream --host lumi-collector.local",
+        "solarian lumi --stream --policy",
+        "solarian lumi --stream --policy --calibration conf/cameras/LUMI07FC9785.json",
     )
 
     def handle(self, cfg) -> None:
         args = _parse_args()
         if not args.stream:
             raise SystemExit("pass --stream to open the live camera")
+        if args.policy:
+            from lumi_collector import policy_view
+
+            calibration = args.calibration or policy_view.find_calibration(Path.cwd() / "conf")
+            policy_view.run(args.host, args.port, calibration)
+            return
         if shutil.which("ffplay") is None:
             raise SystemExit("ffplay not found; install ffmpeg")
         os.execvp("ffplay", ffplay_argv(args.host, args.port))
@@ -47,6 +65,8 @@ class LumiCommand(BaseCommand):
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="solarian lumi", add_help=False)
     parser.add_argument("--stream", action="store_true")
+    parser.add_argument("--policy", action="store_true")
+    parser.add_argument("--calibration", type=Path, default=None)
     parser.add_argument("--host", default=DEFAULT_STREAM_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_STREAM_PORT)
     args, _ = parser.parse_known_args(sys.argv[2:])

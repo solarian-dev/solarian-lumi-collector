@@ -157,6 +157,21 @@ the Pi's hostname is different. Key3 or Left on the collector stops the
 listener so the next recording can open the camera. The command is available
 when the `solarian-lumi-collector` plugin is installed.
 
+To place the camera on the gripper, look at what the policy will get instead:
+
+```bash
+solarian lumi --stream --policy
+```
+
+Each frame is remapped into GoPro Max Lens geometry with the camera's
+calibration, as `solarian umi-slam --camera lumi` remaps the recordings, then
+cropped to 224×224 with the gripper and mirror areas blacked out the way the
+UMI skill does. Run it from the project directory so
+`conf/cameras/<serial>.json` is found, or pass `--calibration` (a session's
+`camera_calibration.json` shows exactly what that session was trained on).
+`s` saves the 224×224 PNG, `q` quits. It needs `solarian-umi-skill` with its
+`slam` extra in the same environment.
+
 ## What "same as a Hero 10" means
 
 UMI does not decode "a GoPro file" as a brand. It needs:
