@@ -92,8 +92,8 @@ class CollectorConfig:
     power: PowerConfig = field(default_factory=PowerConfig)
 
     @property
-    def raw_videos_dir(self) -> Path:
-        return self.data_dir / "raw_videos"
+    def datasets_dir(self) -> Path:
+        return self.data_dir / "datasets"
 
     @property
     def work_dir(self) -> Path:
@@ -102,10 +102,6 @@ class CollectorConfig:
     @property
     def credentials_path(self) -> Path:
         return self.data_dir / "credentials.json"
-
-    @property
-    def catalog_path(self) -> Path:
-        return self.data_dir / "catalog.json"
 
 
 def _tuple3(value: Any, default: tuple[int, int, int]) -> tuple[int, int, int]:

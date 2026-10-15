@@ -34,8 +34,8 @@ imu:
   gyr_sign: [1, 1, 1]
 
 buttons:
-  key1: 21                 # record start/stop
-  key2: 20                 # delete last / delete selected
+  key1: 21                 # select dataset / record start/stop
+  key2: 20                 # delete dataset / delete last / delete selected
   key3: 16                 # settings (short) / shutdown (2s)
   joy_up: 6
   joy_down: 19

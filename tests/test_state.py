@@ -1,135 +1,260 @@
+from pathlib import Path
+
 from lumi_collector.buttons import ButtonSource
+from lumi_collector.catalog import Episode, empty_catalog
 from lumi_collector.config import ButtonConfig
+from lumi_collector.datasets import KEYBOARD_ROWS, MAX_NAME, Dataset
 from lumi_collector.display import BG, Hud, loading_frame, render
 from lumi_collector.state import STREAM_ROW, Action, Event, Screen, UiState, handle
+
+DATASETS = ["cups", "default", "pnp"]
 
 
 def names():
     return ["GX010001.MP4", "GX010002.MP4"]
 
 
+def h(state, event, datasets=DATASETS):
+    return handle(state, event, names(), datasets)
+
+
+def opened():
+    return UiState(screen=Screen.DATASET, dataset="cups")
+
+
 def test_record_toggle():
-    state = UiState()
-    assert handle(state, Event.KEY1, names()) == [Action.START_RECORD]
+    state = opened()
+    assert h(state, Event.KEY1) == [Action.START_RECORD]
     assert state.screen is Screen.RECORDING
-    assert handle(state, Event.KEY1, names()) == [Action.STOP_RECORD]
-    handle(state, Event.RECORD_SEALED, names())
-    assert state.screen is Screen.HOME
-    handle(state, Event.KEY1, names())
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.STOP_RECORD]
-    handle(state, Event.RECORD_SEALED, names())
-    assert state.screen is Screen.HOME
-    assert handle(state, Event.KEY1, names()) == [Action.START_RECORD]
+    assert h(state, Event.KEY1) == [Action.STOP_RECORD]
+    h(state, Event.RECORD_SEALED)
+    assert state.screen is Screen.DATASET
+    h(state, Event.KEY1)
+    assert h(state, Event.JOY_PRESS) == [Action.STOP_RECORD]
+    h(state, Event.RECORD_SEALED)
+    assert state.screen is Screen.DATASET
+    assert h(state, Event.KEY1) == [Action.START_RECORD]
     assert state.screen is Screen.RECORDING
 
 
-def test_delete_last_from_home_needs_confirm():
-    state = UiState()
-    assert handle(state, Event.KEY2, names()) == []
+def test_delete_last_from_dataset_needs_confirm():
+    state = opened()
+    assert h(state, Event.KEY2) == []
     assert state.screen is Screen.CONFIRM_DELETE
     assert state.pending_delete == ["GX010002.MP4"]
-    assert handle(state, Event.JOY_LEFT, names()) == []
-    assert state.screen is Screen.HOME
+    assert h(state, Event.JOY_LEFT) == []
+    assert state.screen is Screen.DATASET
     assert state.pending_delete == []
-    handle(state, Event.JOY_DOWN, names())
+    h(state, Event.JOY_DOWN)
     assert state.pending_delete == ["GX010002.MP4"]
-    assert handle(state, Event.JOY_PRESS, names()) == []
+    assert h(state, Event.JOY_PRESS) == []
     assert state.screen is Screen.CONFIRM_DELETE
-    assert handle(state, Event.KEY2, names()) == [Action.DELETE]
+    assert h(state, Event.KEY2) == [Action.DELETE]
     assert state.pending_delete == ["GX010002.MP4"]
-    assert state.screen is Screen.HOME
+    assert state.screen is Screen.DATASET
 
 
-def test_home_menu():
-    state = UiState()
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.START_RECORD]
+def test_dataset_menu():
+    state = opened()
+    assert h(state, Event.JOY_PRESS) == [Action.START_RECORD]
     assert state.screen is Screen.RECORDING
-    assert handle(state, Event.KEY3, names()) == [Action.STOP_RECORD]
+    assert h(state, Event.KEY3) == [Action.STOP_RECORD]
 
-    state = UiState()
-    handle(state, Event.JOY_UP, names())
+    state = opened()
+    h(state, Event.JOY_UP)
     assert state.screen is Screen.LIBRARY
     assert state.cursor == 1
 
+    state = opened()
+    h(state, Event.JOY_LEFT)
+    assert state.screen is Screen.HOME
+    assert state.dataset == ""
+
+
+def test_home_lists_datasets_and_opens_one():
     state = UiState()
-    handle(state, Event.JOY_LEFT, names())
-    assert state.screen is Screen.SETTINGS
-    handle(state, Event.JOY_LEFT, names())
+    h(state, Event.JOY_DOWN)
+    h(state, Event.JOY_DOWN)
+    h(state, Event.JOY_DOWN)
+    assert state.dataset_cursor == 2
+    h(state, Event.JOY_UP)
+    assert state.dataset_cursor == 1
+    assert h(state, Event.JOY_PRESS) == [Action.OPEN_DATASET]
+    assert state.screen is Screen.DATASET
+    assert state.dataset == "default"
+    h(state, Event.KEY3)
+    assert state.screen is Screen.HOME
+    assert state.dataset_cursor == 1
+
+
+def test_home_with_no_datasets_does_not_open():
+    state = UiState()
+    assert h(state, Event.JOY_PRESS, []) == []
+    assert h(state, Event.KEY2, []) == []
+    assert state.screen is Screen.HOME
+
+
+def test_home_settings_and_back():
+    for event in (Event.JOY_LEFT, Event.KEY3):
+        state = UiState()
+        h(state, event)
+        assert state.screen is Screen.SETTINGS
+        h(state, Event.JOY_LEFT)
+        assert state.screen is Screen.HOME
+
+
+def test_home_multi_select_delete():
+    state = UiState()
+    h(state, Event.KEY1)
+    h(state, Event.JOY_DOWN)
+    h(state, Event.JOY_DOWN)
+    h(state, Event.KEY1)
+    assert state.dataset_selected == {"cups", "pnp"}
+    h(state, Event.KEY2)
+    assert state.screen is Screen.CONFIRM_DELETE
+    assert state.pending_delete == ["cups", "pnp"]
+    h(state, Event.KEY3)
+    assert state.screen is Screen.HOME
+    assert state.pending_delete == []
+    h(state, Event.KEY2)
+    assert h(state, Event.KEY2) == [Action.DELETE_DATASETS]
+    assert state.screen is Screen.HOME
+    assert state.dataset_selected == set()
+
+
+def test_home_delete_without_selection_takes_the_cursor():
+    state = UiState(dataset_cursor=1)
+    h(state, Event.KEY2)
+    assert state.pending_delete == ["default"]
+
+
+def _type(state, ch):
+    for r, row in enumerate(KEYBOARD_ROWS):
+        if ch in row:
+            state.key_row, state.key_col = r, row.index(ch)
+    h(state, Event.JOY_PRESS)
+
+
+def test_create_dataset_on_the_keyboard():
+    state = UiState()
+    h(state, Event.JOY_RIGHT)
+    assert state.screen is Screen.NEW_DATASET
+    assert (state.key_row, state.key_col) == (0, 0)
+    for ch in "towels":
+        _type(state, ch)
+    _type(state, "x")
+    h(state, Event.KEY2)
+    assert state.typed == "towels"
+    assert h(state, Event.KEY1) == [Action.CREATE_DATASET]
+    assert state.screen is Screen.HOME
+
+
+def test_create_rejects_empty_and_existing_names():
+    state = UiState(screen=Screen.NEW_DATASET)
+    assert h(state, Event.KEY1) == []
+    assert state.status == "type a name"
+    for ch in "cups":
+        _type(state, ch)
+    assert state.status == ""
+    assert h(state, Event.KEY1, ["CUPS"]) == []
+    assert state.screen is Screen.NEW_DATASET
+    assert state.status == "exists"
+    h(state, Event.KEY3)
+    assert state.screen is Screen.HOME
+
+
+def test_keyboard_wraps_and_caps_the_name():
+    state = UiState(screen=Screen.NEW_DATASET)
+    h(state, Event.JOY_LEFT)
+    assert state.key_col == len(KEYBOARD_ROWS[0]) - 1
+    h(state, Event.JOY_RIGHT)
+    assert state.key_col == 0
+    h(state, Event.JOY_UP)
+    assert state.key_row == len(KEYBOARD_ROWS) - 1
+    h(state, Event.JOY_DOWN)
+    assert state.key_row == 0
+    state.key_col = 9
+    h(state, Event.JOY_UP)
+    assert state.key_col == len(KEYBOARD_ROWS[-1]) - 1
+    for _ in range(MAX_NAME + 3):
+        h(state, Event.JOY_PRESS)
+    assert len(state.typed) == MAX_NAME
+    assert h(state, Event.KEY3_LONG) == []
     assert state.screen is Screen.HOME
 
 
 def test_library_select_enter_and_upload():
-    state = UiState()
-    handle(state, Event.JOY_UP, names())
+    state = opened()
+    h(state, Event.JOY_UP)
     assert state.screen is Screen.LIBRARY
-    assert handle(state, Event.KEY1, names()) == []
+    assert h(state, Event.KEY1) == []
     assert state.screen is Screen.LIBRARY
     assert "GX010002.MP4" in state.selected
-    handle(state, Event.JOY_PRESS, names())
+    h(state, Event.JOY_PRESS)
     assert state.screen is Screen.EPISODE
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.PLAY]
+    assert h(state, Event.JOY_PRESS) == [Action.PLAY]
     assert state.screen is Screen.PLAYBACK
-    handle(state, Event.KEY3, names())
+    h(state, Event.KEY3)
     assert state.screen is Screen.EPISODE
-    assert handle(state, Event.JOY_UP, names()) == [Action.UPLOAD]
+    assert h(state, Event.JOY_UP) == [Action.UPLOAD]
     assert state.screen is Screen.UPLOAD
-    handle(state, Event.JOY_LEFT, names())
+    h(state, Event.JOY_LEFT)
     assert state.screen is Screen.LIBRARY
 
 
 def test_library_delete_and_back():
-    state = UiState()
-    handle(state, Event.JOY_UP, names())
-    handle(state, Event.KEY2, names())
+    state = opened()
+    h(state, Event.JOY_UP)
+    h(state, Event.KEY2)
     assert state.screen is Screen.CONFIRM_DELETE
     assert state.pending_delete == ["GX010002.MP4"]
-    handle(state, Event.KEY3, names())
+    h(state, Event.KEY3)
     assert state.screen is Screen.LIBRARY
-    handle(state, Event.KEY3, names())
-    assert state.screen is Screen.HOME
+    h(state, Event.KEY3)
+    assert state.screen is Screen.DATASET
 
 
 def test_long_press_is_shutdown():
-    state = UiState()
-    assert handle(state, Event.KEY3_LONG, names()) == [Action.SHUTDOWN]
-    assert state.screen is Screen.SHUTDOWN
+    for state in (UiState(), opened()):
+        assert h(state, Event.KEY3_LONG) == [Action.SHUTDOWN]
+        assert state.screen is Screen.SHUTDOWN
 
 
 def test_long_press_off_home_is_back():
-    state = UiState()
-    handle(state, Event.JOY_UP, names())
+    state = opened()
+    h(state, Event.JOY_UP)
     assert state.screen is Screen.LIBRARY
-    assert handle(state, Event.KEY3_LONG, names()) == []
-    assert state.screen is Screen.HOME
+    assert h(state, Event.KEY3_LONG) == []
+    assert state.screen is Screen.DATASET
 
 
 def test_settings_opens_stream():
     state = UiState()
-    handle(state, Event.KEY3, names())
+    h(state, Event.KEY3)
     for _ in range(STREAM_ROW):
-        handle(state, Event.JOY_DOWN, names())
+        h(state, Event.JOY_DOWN)
     assert state.settings_cursor == STREAM_ROW
-    handle(state, Event.JOY_DOWN, names())
+    h(state, Event.JOY_DOWN)
     assert state.settings_cursor == STREAM_ROW
-    assert handle(state, Event.JOY_PRESS, names()) == [Action.START_STREAM]
+    assert h(state, Event.JOY_PRESS) == [Action.START_STREAM]
     assert state.screen is Screen.STREAM
-    assert handle(state, Event.JOY_LEFT, names()) == [Action.STOP_STREAM]
+    assert h(state, Event.JOY_LEFT) == [Action.STOP_STREAM]
     assert state.screen is Screen.SETTINGS
-    assert handle(state, Event.JOY_RIGHT, names()) == [Action.START_STREAM]
-    assert handle(state, Event.KEY3, names()) == [Action.STOP_STREAM]
+    assert h(state, Event.JOY_RIGHT) == [Action.START_STREAM]
+    assert h(state, Event.KEY3) == [Action.STOP_STREAM]
     assert state.screen is Screen.SETTINGS
 
 
 def test_settings_opens_live_imu():
     state = UiState()
-    handle(state, Event.KEY3, names())
+    h(state, Event.KEY3)
     assert state.screen is Screen.SETTINGS
-    handle(state, Event.JOY_DOWN, names())
-    handle(state, Event.JOY_DOWN, names())
+    h(state, Event.JOY_DOWN)
+    h(state, Event.JOY_DOWN)
     assert state.settings_cursor == 2
-    assert handle(state, Event.JOY_RIGHT, names()) == []
+    assert h(state, Event.JOY_RIGHT) == []
     assert state.screen is Screen.IMU
-    handle(state, Event.KEY3, names())
+    h(state, Event.KEY3)
     assert state.screen is Screen.SETTINGS
 
 
@@ -152,28 +277,27 @@ def test_loading_frame_replaces_white():
     assert small.getpixel((0, 0)) != (255, 255, 255)
 
 
+def _hud(**kwargs):
+    return Hud(**{"battery_pct": 50, "charging": False, "free_gb": 1, "rec_s": 0, "setup_url": "", "wifi": "", **kwargs})
+
+
 def test_stream_screen_renders():
     state = UiState(screen=Screen.STREAM, status="rpicam-vid exited 1")
-    img = render(state, [], Hud(battery_pct=50, charging=False, free_gb=1, rec_s=0, setup_url="", wifi=""))
-    assert img.size == (240, 240)
+    assert render(state, [], [], _hud()).size == (240, 240)
     settings = UiState(screen=Screen.SETTINGS, settings_cursor=STREAM_ROW)
-    img = render(settings, [], Hud(battery_pct=50, charging=False, free_gb=1, rec_s=0, setup_url="", wifi=""))
-    assert img.size == (240, 240)
+    assert render(settings, [], [], _hud()).size == (240, 240)
 
 
-def test_home_renders():
-    from lumi_collector.catalog import Episode
-
-    img = render(
+def test_every_dataset_screen_renders():
+    datasets = [Dataset(name, Path("/tmp") / name, empty_catalog("X")) for name in [*DATASETS, "a" * MAX_NAME]]
+    episodes = [Episode("GX010001.MP4", "2026-09-21T12:00:00.000000Z", 12.0, 1_000_000)]
+    states = (
         UiState(),
-        [Episode("GX010001.MP4", "2026-09-21T12:00:00.000000Z", 12.0, 1_000_000)],
-        Hud(battery_pct=80, charging=False, free_gb=12.5, rec_s=0, setup_url="http://x", wifi="1.2.3.4"),
+        UiState(dataset_cursor=3, dataset_selected={"cups"}),
+        UiState(screen=Screen.NEW_DATASET, typed="a" * MAX_NAME, status="exists"),
+        UiState(screen=Screen.DATASET, dataset="a" * MAX_NAME),
+        UiState(screen=Screen.CONFIRM_DELETE, confirm_from=Screen.HOME, pending_delete=["cups"]),
     )
-    assert img.size == (240, 240)
-    small = render(
-        UiState(),
-        [],
-        Hud(battery_pct=None, charging=False, free_gb=109.1, rec_s=0, setup_url="http://x", wifi=""),
-        size=(128, 128),
-    )
-    assert small.size == (128, 128)
+    for state in states:
+        assert render(state, datasets, episodes, _hud()).size == (240, 240)
+        assert render(state, [], [], _hud(battery_pct=None), size=(128, 128)).size == (128, 128)

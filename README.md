@@ -126,16 +126,24 @@ Regenerate the poster with `python docs/render_architecture.py`.
 
 | Control          | GPIO         | Function                                        |
 | ---------------- | ------------ | ----------------------------------------------- |
-| KEY1             | 21           | Home: record. List: select. Recording: stop     |
-| KEY2             | 20           | Home: delete last. List: delete                 |
-| KEY3 short       | 16           | Home: settings. Every other screen: back        |
-| KEY3 hold 2 s    | 16           | `shutdown -h now` (from home)                   |
+| KEY1             | 21           | Datasets: select. Dataset: record. List: select. New dataset: create. Recording: stop |
+| KEY2             | 20           | Datasets: delete. Dataset: delete last. List: delete. New dataset: erase a letter |
+| KEY3 short       | 16           | Datasets: settings. Every other screen: back    |
+| KEY3 hold 2 s    | 16           | `shutdown -h now` (from datasets or a dataset)  |
 | UPS slide switch | —            | Hard power                                      |
-| Push             | 13           | Home: record. List: open episode. Episode: play. Recording: stop |
-| Stick up         | 6            | Home: list episodes. List: move up. Episode: upload |
-| Stick down       | 19           | Home: delete last. List: move down              |
-| Stick left       | 5            | Home: settings. Every other screen: back        |
-| Stick right      | 26           | Settings: open the IMU view                     |
+| Push             | 13           | Datasets: open. Dataset: record. List: open episode. Episode: play. New dataset: type the key. Recording: stop |
+| Stick up         | 6            | Datasets: move up. Dataset: list episodes. List: move up. Episode: upload |
+| Stick down       | 19           | Datasets: move down. Dataset: delete last. List: move down |
+| Stick left       | 5            | Datasets: settings. Every other screen: back    |
+| Stick right      | 26           | Datasets: new dataset. Settings: open the IMU view |
+
+The home screen lists the datasets with their episode counts. A dataset is a
+folder on the SD card; opening one shows its last episode and records into it.
+Right opens a keyboard: the stick moves across it (Left and Right too, so only
+KEY3 cancels there), Push types, KEY1 creates the folder. Names use `a-z`,
+`0-9`, `-` and `_`, up to 24 characters, and must differ from every existing
+dataset regardless of case. A dataset that is recording or still saving a take
+cannot be deleted until the save finishes.
 
 
 Sign-in is not typed on the joystick. After boot, open
@@ -196,7 +204,7 @@ not the `gpmd` track, because the sidecar keeps each sample's time:
   camera did not deliver frames. The MP4's timestamps leave those slots empty,
   so players hold frame k and the video keeps real time; `solarian umi-slam`
   repeats frame k there to make an exact 30 fps video. Drops are also logged
-  as warnings, counted per episode in `catalog.json`, and shown on screen.
+  as warnings, counted per episode in the dataset's `catalog.json`, and shown on screen.
 
 Recording and saving are split so the save never costs a frame, even back to
 back. A take writes straight to the SD card (`work/`), so it can be as long as
@@ -266,14 +274,22 @@ wants the MP4s on disk (`rsync` / download), not the PrimaryKey dataset viewer.
 /home/pi/lumi/
   collector.yaml
   credentials.json
-  catalog.json
-  raw_videos/GX010001.MP4
-  raw_videos/GX010001.imu.json
+  work/                          takes being recorded and saved
+  datasets/
+    cups/
+      catalog.json
+      raw_videos/GX010001.MP4
+      raw_videos/GX010001.imu.json
 ```
 
-Copy `raw_videos/` onto a workstation session directory and run the UMI
-scripts as usual. The share below is the whole `/home/pi` folder, so the
-episodes are in `lumi/raw_videos`.
+Each dataset folder is laid out like a UMI session directory: copy it to a
+workstation and run the UMI scripts on it as usual. Each dataset numbers its
+own episodes from `GX010001`. The share below is the whole `/home/pi` folder,
+so a dataset's episodes are in `lumi/datasets/<name>/raw_videos`.
+
+Recordings from before datasets (`lumi/raw_videos` and `lumi/catalog.json`)
+are moved into `datasets/default` the first time the collector starts.
+Uploads are named `lumi-<dataset>-<first episode>-<last episode>`.
 
 ## Download files locally
 

@@ -8,8 +8,9 @@ from pathlib import Path
 
 from lumi_collector.auth import PrimaryKeyClient, load_credentials
 from lumi_collector.buttons import ButtonSource, GpioButtons
-from lumi_collector.catalog import Catalog, load_catalog, mark_deleted, mark_uploaded, save_catalog
+from lumi_collector.catalog import mark_deleted, mark_uploaded, save_catalog
 from lumi_collector.config import CollectorConfig, resolve_camera_serial
+from lumi_collector.datasets import Dataset, create_dataset, delete_dataset, list_datasets, migrate_legacy
 from lumi_collector.display import Hud, render
 from lumi_collector.imu import open_imu
 from lumi_collector.playback import ClipPlayer
@@ -44,9 +45,11 @@ class CollectorApp:
         self.display = display
         self.serial = resolve_camera_serial(cfg)
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
-        cfg.raw_videos_dir.mkdir(parents=True, exist_ok=True)
         cfg.work_dir.mkdir(parents=True, exist_ok=True)
-        self.catalog: Catalog = load_catalog(cfg.catalog_path, self.serial)
+        migrate_legacy(cfg.data_dir, cfg.datasets_dir)
+        cfg.datasets_dir.mkdir(parents=True, exist_ok=True)
+        self.datasets: list[Dataset] = list_datasets(cfg.datasets_dir, self.serial)
+        self.dataset: Dataset | None = None
         self.catalog_lock = threading.Lock()
         self.state = UiState()
         self._dropped_status = ""
@@ -63,7 +66,6 @@ class CollectorApp:
             cfg,
             camera,
             self.imu,
-            self.catalog,
             self.catalog_lock,
             self.serial,
             on_failed=self._seal_failed,
@@ -101,10 +103,11 @@ class CollectorApp:
             pressed = self.gpio.read()
         pressed = pressed or {}
         for event in self.buttons.poll(pressed):
-            self._dispatch(event)
+            for action in self._handle(event):
+                self._apply(action)
         recording = self.recorder.recording
         if self.recorder.check_camera() and recording:
-            handle(self.state, Event.RECORD_SEALED, [e.filename for e in self.catalog.visible()])
+            self._handle(Event.RECORD_SEALED)
             self.state.status = "camera stalled"
             self._dropped_status = ""
         if self.recorder.recording:
@@ -122,50 +125,79 @@ class CollectorApp:
             self.state.status = self.stream.error
         self._draw()
 
-    def _dispatch(self, event: Event) -> None:
-        names = [e.filename for e in self.catalog.visible()]
-        actions = handle(self.state, event, names)
-        for action in actions:
-            self._apply(action)
+    def _episode_names(self) -> list[str]:
+        if self.dataset is None:
+            return []
+        return [e.filename for e in self.dataset.catalog.visible()]
+
+    def _handle(self, event: Event) -> list[Action]:
+        return handle(self.state, event, self._episode_names(), [d.name for d in self.datasets])
 
     def _apply(self, action: Action) -> None:
-        if action is Action.START_RECORD:
-            self.recorder.start()
+        if action is Action.OPEN_DATASET:
+            self.dataset = next(d for d in self.datasets if d.name == self.state.dataset)
+        elif action is Action.CREATE_DATASET:
+            try:
+                dataset = create_dataset(self.cfg.datasets_dir, self.state.typed, self.serial)
+            except OSError as exc:
+                logging.exception("creating dataset %r failed", self.state.typed)
+                self.state.screen = Screen.NEW_DATASET
+                self.state.status = "exists" if isinstance(exc, FileExistsError) else "create failed"
+            else:
+                self.datasets.append(dataset)
+                self.datasets.sort(key=lambda d: d.name)
+                self.state.dataset_cursor = self.datasets.index(dataset)
+        elif action is Action.DELETE_DATASETS:
+            by_name = {d.name: d for d in self.datasets}
+            for name in self.state.pending_delete:
+                dataset = by_name[name]
+                if self.recorder.busy(dataset):
+                    self.state.status = "saving"
+                    continue
+                try:
+                    delete_dataset(dataset)
+                except OSError:
+                    logging.exception("deleting dataset %r failed", name)
+                    self.state.status = "delete failed"
+                    continue
+                self.datasets.remove(dataset)
+                if self.dataset is dataset:
+                    self.dataset = None
+            self.state.pending_delete = []
+        elif action is Action.START_RECORD:
+            self.recorder.start(self.dataset)
         elif action is Action.STOP_RECORD:
             try:
                 saved = self.recorder.stop()
             except Exception:
                 logging.exception("stop recording failed")
-                self.state.screen = Screen.HOME
+                self.state.screen = Screen.DATASET
                 self.state.rec_s = 0.0
                 self.state.status = "save failed"
             else:
-                handle(
-                    self.state,
-                    Event.RECORD_SEALED,
-                    [e.filename for e in self.catalog.visible()],
-                )
+                self._handle(Event.RECORD_SEALED)
                 if not saved:
                     self.state.status = "camera stalled"
                 elif self._dropped_status:
                     self.state.status = self._dropped_status
                     self._dropped_status = ""
         elif action is Action.DELETE:
+            dataset = self.dataset
             with self.catalog_lock:
                 for name in list(self.state.pending_delete):
-                    mark_deleted(self.catalog, name)
-                    path = self.cfg.raw_videos_dir / name
+                    mark_deleted(dataset.catalog, name)
+                    path = dataset.raw_videos_dir / name
                     path.unlink(missing_ok=True)
                     path.with_suffix(".imu.json").unlink(missing_ok=True)
                 self.state.pending_delete = []
-                save_catalog(self.cfg.catalog_path, self.catalog)
+                save_catalog(dataset.catalog_path, dataset.catalog)
         elif action is Action.UPLOAD:
-            threading.Thread(target=self._upload, daemon=True).start()
+            threading.Thread(target=self._upload, args=(self.dataset,), daemon=True).start()
         elif action is Action.PLAY:
-            names = [e.filename for e in self.catalog.visible()]
+            names = self._episode_names()
             if names:
                 self.preview = None
-                self.player.start(self.cfg.raw_videos_dir / names[self.state.cursor])
+                self.player.start(self.dataset.raw_videos_dir / names[self.state.cursor])
         elif action is Action.START_STREAM:
             # libcamera allows one client. Picamera2 stays open after a take;
             # close() is what releases it, and the next recording recreates it.
@@ -181,9 +213,9 @@ class CollectorApp:
             self.recorder.close()
             self.power.shutdown()
 
-    def _upload(self) -> None:
+    def _upload(self, dataset: Dataset) -> None:
         creds = load_credentials(self.cfg.credentials_path)
-        names = [e.filename for e in self.catalog.visible()]
+        names = [e.filename for e in dataset.catalog.visible()]
         chosen = list(self.state.selected) or (
             [names[self.state.cursor]] if names else []
         )
@@ -193,19 +225,18 @@ class CollectorApp:
             client = PrimaryKeyClient(creds.api_url, creds)
             upload_selected(
                 client,
-                self.catalog,
-                self.cfg.raw_videos_dir,
+                dataset,
                 self.cfg.work_dir,
                 chosen,
                 project_id=creds.project_id,
             )
             with self.catalog_lock:
-                mark_uploaded(self.catalog, chosen)
-                save_catalog(self.cfg.catalog_path, self.catalog)
-            handle(self.state, Event.UPLOAD_DONE, names)
+                mark_uploaded(dataset.catalog, chosen)
+                save_catalog(dataset.catalog_path, dataset.catalog)
+            self._handle(Event.UPLOAD_DONE)
         except Exception as exc:
             self.state.status = str(exc)
-            handle(self.state, Event.UPLOAD_ERROR, names)
+            self._handle(Event.UPLOAD_ERROR)
 
     def _read_imu(self) -> None:
         try:
@@ -248,7 +279,8 @@ class CollectorApp:
         )
         frame = render(
             self.state,
-            self.catalog.visible(),
+            self.datasets,
+            self.dataset.catalog.visible() if self.dataset is not None else [],
             hud,
             size=(self.cfg.display.width, self.cfg.display.height),
             preview=self.preview,

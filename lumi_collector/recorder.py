@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,8 +19,9 @@ from typing import Protocol
 
 import numpy as np
 
-from lumi_collector.catalog import Catalog, add_episode, next_gopro_name, save_catalog
+from lumi_collector.catalog import add_episode, next_gopro_name, save_catalog
 from lumi_collector.config import CollectorConfig
+from lumi_collector.datasets import Dataset
 from lumi_collector.imu import Imu
 from lumi_collector.mux import drop_cache
 from lumi_collector.seal import SealJob, sample_array, write_job
@@ -349,6 +350,7 @@ class LiveRecording:
     filename: str
     started: datetime
     h264_path: Path
+    dataset: Dataset
 
 
 class Recorder:
@@ -357,7 +359,6 @@ class Recorder:
         cfg: CollectorConfig,
         camera: Camera,
         imu: Imu,
-        catalog: Catalog,
         catalog_lock: threading.Lock,
         serial: str,
         on_failed: Callable[[], None] | None = None,
@@ -366,9 +367,11 @@ class Recorder:
         self.cfg = cfg
         self.camera = camera
         self.imu = imu
-        self._catalog = catalog
         self._catalog_lock = catalog_lock
-        self._catalog_dirty = False
+        # Catalogs whose save waits for the take to start or stop, by dataset root.
+        self._dirty: dict[Path, Dataset] = {}
+        # Takes stopped but not yet saved, by dataset root. Guarded by the catalog lock.
+        self._pending: Counter[Path] = Counter()
         self._serial = serial
         self._on_failed = on_failed
         self._on_dropped = on_dropped
@@ -381,7 +384,7 @@ class Recorder:
         self._hold_seal = threading.Event()
         self._seal_proc: subprocess.Popen | None = None
         self._seal_proc_lock = threading.Lock()
-        self._seal_queue: queue.Queue[SealJob | None] = queue.Queue()
+        self._seal_queue: queue.Queue[tuple[SealJob, Dataset] | None] = queue.Queue()
         self._seal_thread = threading.Thread(target=self._seal_loop, name="lumi-seal")
         self._seal_thread.start()
 
@@ -395,19 +398,33 @@ class Recorder:
             return 0.0
         return (datetime.now(timezone.utc) - live.started).total_seconds()
 
-    def start(self) -> str:
+    def busy(self, dataset: Dataset) -> bool:
+        """True while a take of ``dataset`` records or waits to be saved."""
+        live = self._live
+        if live is not None and live.dataset.root == dataset.root:
+            return True
+        with self._catalog_lock:
+            return self._pending[dataset.root] > 0
+
+    def _save_dirty(self) -> None:
+        """Caller holds the catalog lock."""
+        for dataset in self._dirty.values():
+            save_catalog(dataset.catalog_path, dataset.catalog)
+        self._dirty.clear()
+
+    def start(self, dataset: Dataset) -> str:
         if self._live is not None:
             raise RuntimeError("already recording")
         with self._catalog_lock:
-            name = next_gopro_name(self._catalog)
-            save_catalog(self.cfg.catalog_path, self._catalog)
-            self._catalog_dirty = False
+            name = next_gopro_name(dataset.catalog)
+            self._dirty[dataset.root] = dataset
+            self._save_dirty()
         self.cfg.work_dir.mkdir(parents=True, exist_ok=True)
         h264_path = self.cfg.work_dir / f"{Path(name).stem}.h264"
         started = datetime.now(timezone.utc)
         # Before the camera, so the IMU covers the first frame.
         self.imu.start_stream()
-        self._live = LiveRecording(filename=name, started=started, h264_path=h264_path)
+        self._live = LiveRecording(filename=name, started=started, h264_path=h264_path, dataset=dataset)
         self.camera.start(h264_path, self._on_gap)
         # Per take, so a straggler IMU thread cannot be cleared back into its loop.
         stop = threading.Event()
@@ -477,30 +494,29 @@ class Recorder:
         self._live = None
         self._thread = None
         with self._catalog_lock:
-            if self._catalog_dirty:
-                save_catalog(self.cfg.catalog_path, self._catalog)
-                self._catalog_dirty = False
+            self._save_dirty()
         if not frame_times:
             logging.warning("%s: the camera sent no frames; nothing to save", live.filename)
             live.h264_path.unlink(missing_ok=True)
             return False
-        self._seal_queue.put(
-            SealJob(
-                filename=live.filename,
-                started=live.started,
-                h264_path=live.h264_path,
-                out_mp4=self.cfg.raw_videos_dir / live.filename,
-                serial=self._serial,
-                fps=fps,
-                silence_aac=self.cfg.work_dir / "silence.m4a",
-                samples=sample_array(samples),
-                frame_times_s=np.asarray(frame_times, dtype=float),
-                slots=slots,
-                dropped_frames=gaps,
-                imu_info=imu_info,
-                duration_s=duration,
-            )
+        with self._catalog_lock:
+            self._pending[live.dataset.root] += 1
+        job = SealJob(
+            filename=live.filename,
+            started=live.started,
+            h264_path=live.h264_path,
+            out_mp4=live.dataset.raw_videos_dir / live.filename,
+            serial=self._serial,
+            fps=fps,
+            silence_aac=self.cfg.work_dir / "silence.m4a",
+            samples=sample_array(samples),
+            frame_times_s=np.asarray(frame_times, dtype=float),
+            slots=slots,
+            dropped_frames=gaps,
+            imu_info=imu_info,
+            duration_s=duration,
         )
+        self._seal_queue.put((job, live.dataset))
         return True
 
     def close(self) -> None:
@@ -519,17 +535,21 @@ class Recorder:
 
     def _seal_loop(self) -> None:
         while True:
-            job = self._seal_queue.get()
-            if job is None:
+            item = self._seal_queue.get()
+            if item is None:
                 return
+            job, dataset = item
             try:
-                self._seal(job)
+                self._seal(job, dataset)
             except Exception:
                 logging.exception("recording seal failed")
                 if self._on_failed is not None:
                     self._on_failed()
+            finally:
+                with self._catalog_lock:
+                    self._pending[dataset.root] -= 1
 
-    def _seal(self, job: SealJob) -> None:
+    def _seal(self, job: SealJob, dataset: Dataset) -> None:
         job.out_mp4.parent.mkdir(parents=True, exist_ok=True)
         job_path = job.h264_path.with_suffix(".job")
         t0 = time.monotonic()
@@ -548,7 +568,7 @@ class Recorder:
             raise RuntimeError((err or "").strip() or f"seal exited {proc.returncode}")
         with self._catalog_lock:
             add_episode(
-                self._catalog,
+                dataset.catalog,
                 filename=job.filename,
                 duration_s=job.duration_s,
                 size_bytes=job.out_mp4.stat().st_size,
@@ -557,9 +577,9 @@ class Recorder:
             )
             # The JSON dump holds the GIL; during a take it waits for start or stop.
             if self.recording:
-                self._catalog_dirty = True
+                self._dirty[dataset.root] = dataset
             else:
-                save_catalog(self.cfg.catalog_path, self._catalog)
+                save_catalog(dataset.catalog_path, dataset.catalog)
         job.h264_path.unlink(missing_ok=True)
         logging.info("sealed %s in %.2f s", job.filename, time.monotonic() - t0)
 

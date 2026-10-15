@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -12,8 +13,9 @@ import pytest
 
 from lumi_collector import seal as seal_module
 from lumi_collector.app import CollectorApp
-from lumi_collector.catalog import empty_catalog, load_catalog
+from lumi_collector.catalog import load_catalog
 from lumi_collector.config import CollectorConfig
+from lumi_collector.datasets import create_dataset
 from lumi_collector.display import MockDisplay
 from lumi_collector.imu import open_imu
 from lumi_collector.recorder import MockCamera, QueuedFile, Recorder, cap_exposure, frame_gaps, frame_slots
@@ -103,18 +105,36 @@ def test_exposure_cap_never_raises_gain_past_max_gain():
     assert capped["gain"] == [1.0, 2.0, 4.0, 16.0, 16.0]
 
 
+def _dataset(cfg, name="test"):
+    return create_dataset(cfg.datasets_dir, name, "LUMI1")
+
+
+def _press(app, button):
+    app.tick({button: True})
+    app.tick({})
+
+
+def _open_new_dataset(app):
+    """Right, type the highlighted "1", Key1 create, Push open."""
+    for button in ("joy_right", "joy_press", "key1", "joy_press"):
+        _press(app, button)
+    assert app.state.screen is Screen.DATASET
+    return app.dataset
+
+
 def test_stop_returns_while_mux_blocks(tmp_path, monkeypatch):
     entered, release = _block_mux(monkeypatch)
     cfg = CollectorConfig(data_dir=tmp_path, camera_serial="LUMI1")
     camera = MockCamera(cfg)
     imu = open_imu(replace(cfg.imu, driver="mock"))
-    catalog = empty_catalog("LUMI1")
-    rec = Recorder(cfg, camera, imu, catalog, threading.Lock(), "LUMI1")
+    dataset = _dataset(cfg)
+    catalog = dataset.catalog
+    rec = Recorder(cfg, camera, imu, threading.Lock(), "LUMI1")
     stopped = threading.Thread(target=rec.stop)
     started_stop = False
     try:
-        first = rec.start()
-        saved = load_catalog(cfg.catalog_path, "LUMI1")
+        first = rec.start(dataset)
+        saved = load_catalog(dataset.catalog_path, "LUMI1")
         assert saved.next_index == 2
         assert saved.episodes == []
         stopped.start()
@@ -123,8 +143,9 @@ def test_stop_returns_while_mux_blocks(tmp_path, monkeypatch):
         stopped.join(0.5)
         assert not stopped.is_alive()
         assert rec.recording is False
+        assert rec.busy(dataset)
         assert camera.closed is False
-        second = rec.start()
+        second = rec.start(dataset)
         assert first == "GX010001.MP4"
         assert second == "GX010002.MP4"
     finally:
@@ -149,26 +170,28 @@ def test_takes_record_to_the_work_dir_and_dropped_frames_are_reported(tmp_path, 
             return [origin + 0.5 + period * k for k in (0, 1, 2, 6, 7)]
 
     dropped = []
-    catalog = empty_catalog("LUMI1")
+    dataset = _dataset(cfg)
+    catalog = dataset.catalog
     rec = Recorder(
-        cfg, TimedCamera(cfg), imu, catalog, threading.Lock(), "LUMI1",
+        cfg, TimedCamera(cfg), imu, threading.Lock(), "LUMI1",
         on_dropped=lambda name, count: dropped.append((name, count)),
     )
     try:
-        name = rec.start()
+        name = rec.start(dataset)
         assert rec.camera.h264_path.parent == cfg.work_dir
         assert rec.stop() is True
     finally:
         rec.close()
         imu.close()
-    take = json.loads((cfg.raw_videos_dir / name).with_suffix(".imu.json").read_text())["1"]
+    assert not rec.busy(dataset)
+    take = json.loads((dataset.raw_videos_dir / name).with_suffix(".imu.json").read_text())["1"]
     assert [f["t_s"] for f in take["frames"]] == pytest.approx([0.5 + period * k for k in (0, 1, 2, 6, 7)])
     assert take["dropped_frames"] == [{"after_frame": 2, "missing": 3}]
     assert take["imu"]["timing"] == "read"
     assert len(take["streams"]["GYRO"]["samples"]) >= 1
     assert dropped == [(name, 3)]
     assert catalog.episodes[0].dropped_frames == 3
-    assert load_catalog(cfg.catalog_path, "LUMI1").episodes[0].dropped_frames == 3
+    assert load_catalog(dataset.catalog_path, "LUMI1").episodes[0].dropped_frames == 3
     assert list(cfg.work_dir.glob("*.h264")) == []
 
 
@@ -196,17 +219,18 @@ def test_a_take_without_frames_is_not_saved(tmp_path):
     cfg = CollectorConfig(data_dir=tmp_path, camera_serial="LUMI1")
     imu = open_imu(replace(cfg.imu, driver="mock"))
     failed = []
-    catalog = empty_catalog("LUMI1")
-    rec = Recorder(cfg, SilentCamera(cfg), imu, catalog, threading.Lock(), "LUMI1", on_failed=lambda: failed.append(1))
+    dataset = _dataset(cfg)
+    rec = Recorder(cfg, SilentCamera(cfg), imu, threading.Lock(), "LUMI1", on_failed=lambda: failed.append(1))
     try:
-        rec.start()
+        rec.start(dataset)
         assert rec.stop() is False
+        assert not rec.busy(dataset)
     finally:
         rec.close()
         imu.close()
     assert InProcessSeal.started == []
     assert failed == []
-    assert catalog.episodes == []
+    assert dataset.catalog.episodes == []
     assert list(cfg.work_dir.glob("*.h264")) == []
 
 
@@ -214,7 +238,7 @@ def test_an_idle_camera_that_stalls_is_reopened(tmp_path):
     cfg = CollectorConfig(data_dir=tmp_path, camera_serial="LUMI1")
     imu = open_imu(replace(cfg.imu, driver="mock"))
     camera = SilentCamera(cfg)
-    rec = Recorder(cfg, camera, imu, empty_catalog("LUMI1"), threading.Lock(), "LUMI1")
+    rec = Recorder(cfg, camera, imu, threading.Lock(), "LUMI1")
     try:
         assert rec.check_camera() is False
         camera.is_stalled = True
@@ -233,6 +257,7 @@ def test_a_stall_while_recording_ends_the_take_and_shows_it(tmp_path, monkeypatc
     app = CollectorApp(cfg, MockDisplay(), mock=True)
     camera = app.recorder.camera
     try:
+        dataset = _open_new_dataset(app)
         app.tick({"key1": True})
         app.tick({"key1": False})
         assert app.recorder.recording
@@ -241,13 +266,13 @@ def test_a_stall_while_recording_ends_the_take_and_shows_it(tmp_path, monkeypatc
         monkeypatch.setattr(camera, "open", lambda: reopened.append(1))
         app.tick({})
         assert not app.recorder.recording
-        assert app.state.screen is Screen.HOME
+        assert app.state.screen is Screen.DATASET
         assert app.state.status == "camera stalled"
         assert reopened == [1]
     finally:
         app.recorder.close()
         app.imu.close()
-    assert [e.filename for e in app.catalog.episodes] == ["GX010001.MP4"]
+    assert [e.filename for e in dataset.catalog.episodes] == ["GX010001.MP4"]
 
 
 class SlowFile:
@@ -300,12 +325,13 @@ def test_a_gap_during_a_take_freezes_the_save_until_the_take_stops(tmp_path, mon
     entered, release = _block_mux(monkeypatch)
     cfg = CollectorConfig(data_dir=tmp_path, camera_serial="LUMI1")
     imu = open_imu(replace(cfg.imu, driver="mock"))
-    rec = Recorder(cfg, MockCamera(cfg), imu, empty_catalog("LUMI1"), threading.Lock(), "LUMI1")
+    dataset = _dataset(cfg)
+    rec = Recorder(cfg, MockCamera(cfg), imu, threading.Lock(), "LUMI1")
     try:
-        rec.start()
+        rec.start(dataset)
         rec.stop()
         assert entered.wait(2)
-        rec.start()
+        rec.start(dataset)
         rec._on_gap()
         rec._on_gap()
         saving = InProcessSeal.started[0]
@@ -325,6 +351,7 @@ def test_key1_starts_next_take_while_seal_runs(tmp_path, monkeypatch):
     stop_press = threading.Thread(target=lambda: app.tick({"key1": True}))
     started_stop = False
     try:
+        _open_new_dataset(app)
         app.tick({"key1": True})
         assert app.state.screen is Screen.RECORDING
         app.tick({"key1": False})
@@ -333,7 +360,7 @@ def test_key1_starts_next_take_while_seal_runs(tmp_path, monkeypatch):
         assert entered.wait(2)
         stop_press.join(0.5)
         assert not stop_press.is_alive()
-        assert app.state.screen is Screen.HOME
+        assert app.state.screen is Screen.DATASET
         assert app.recorder.camera.closed is False
         app.tick({"key1": False})
         app.tick({"key1": True})
@@ -347,6 +374,42 @@ def test_key1_starts_next_take_while_seal_runs(tmp_path, monkeypatch):
             stop_press.join(2)
         app.recorder.close()
         app.imu.close()
+
+
+def test_a_save_lands_in_its_dataset_and_blocks_deleting_it(tmp_path, monkeypatch):
+    entered, release = _block_mux(monkeypatch)
+    cfg = CollectorConfig(data_dir=tmp_path, camera_serial="LUMI1")
+    app = CollectorApp(cfg, MockDisplay(), mock=True)
+    try:
+        first = _open_new_dataset(app)
+        _press(app, "key1")
+        _press(app, "key1")
+        assert entered.wait(2)
+        _press(app, "joy_left")
+        assert app.state.screen is Screen.HOME
+        for button in ("joy_right", "joy_right", "joy_press", "key1"):
+            _press(app, button)
+        assert [d.name for d in app.datasets] == ["1", "2"]
+        assert app.state.dataset_cursor == 1
+        _press(app, "joy_up")
+        _press(app, "key2")
+        _press(app, "key2")
+        assert app.state.status == "saving"
+        assert [d.name for d in app.datasets] == ["1", "2"]
+        release.set()
+        deadline = time.monotonic() + 5
+        while app.recorder.busy(first) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        _press(app, "key2")
+        _press(app, "key2")
+    finally:
+        release.set()
+        app.recorder.close()
+        app.imu.close()
+    assert [e.filename for e in first.catalog.episodes] == ["GX010001.MP4"]
+    assert [d.name for d in app.datasets] == ["2"]
+    assert not first.root.exists()
+    assert app.datasets[0].catalog.episodes == []
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")

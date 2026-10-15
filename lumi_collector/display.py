@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont
 
 from lumi_collector.catalog import Episode
+from lumi_collector.datasets import KEYBOARD_ROWS, Dataset
 from lumi_collector.state import IMU_ROW, STREAM_ROW, Screen, UiState
 
 BG = (8, 10, 14)
@@ -56,11 +57,18 @@ def _fmt_size(n: int) -> str:
 
 CANVAS = (240, 240)
 LOADING_TEXT = "Loading Solarian LUMI..."
-HOME_MENU = (
+DATASETS_MENU = (
+    ("Key1", "select"),
+    ("Key2", "delete"),
+    ("Push", "open"),
+    ("Right", "create"),
+    ("Key3 / Left", "settings"),
+)
+DATASET_MENU = (
     ("Key1 / Push", "record ep"),
     ("Key2 / Down", "delete last ep"),
     ("Up", "List episodes"),
-    ("Key3 / Left", "Settings"),
+    ("Key3 / Left", "back"),
 )
 LIBRARY_MENU = (
     ("Key1", "select"),
@@ -109,6 +117,15 @@ def _hint(draw, x, y, key: str, action: str, font) -> None:
     draw.text((x + draw.textlength(key + " ", font=font), y), action, font=font, fill=MUTED)
 
 
+def _fit(draw, text: str, font, max_w: float, *, keep_end: bool = False) -> str:
+    """Trim ``text`` with an ellipsis until it is at most ``max_w`` wide."""
+    if draw.textlength(text, font=font) <= max_w:
+        return text
+    while text and draw.textlength(text + "…", font=font) > max_w:
+        text = text[1:] if keep_end else text[:-1]
+    return "…" + text if keep_end else text + "…"
+
+
 def loading_frame(*, size: tuple[int, int] = CANVAS) -> Image.Image:
     """First frame after power-on. The ST7735 glass stays white until this is sent."""
     shrink = CANVAS[0] / size[0]
@@ -143,6 +160,7 @@ def loading_frame(*, size: tuple[int, int] = CANVAS) -> Image.Image:
 
 def render(
     state: UiState,
+    datasets: list[Dataset],
     episodes: list[Episode],
     hud: Hud,
     *,
@@ -168,7 +186,54 @@ def render(
     d.text((CANVAS[0] - 6, 3), f"{hud.free_gb:.1f} GB", font=small, fill=MUTED, anchor="ra")
 
     if state.screen is Screen.HOME:
-        d.text((CANVAS[0] // 2, 28), "Solarian LUMI", font=title, fill=GREEN, anchor="mt")
+        d.text((8, 26), "datasets", font=title, fill=GREEN)
+        if state.status:
+            d.text((CANVAS[0] - 8, 28), state.status, font=small, fill=AMBER, anchor="ra")
+        if not datasets:
+            d.text((8, 60), "none yet", font=body, fill=MUTED)
+        else:
+            top = max(0, min(state.dataset_cursor - 1, len(datasets) - 4))
+            for i, ds in enumerate(datasets[top : top + 4]):
+                y = 50 + i * 20
+                idx = top + i
+                fill = FG if idx == state.dataset_cursor else MUTED
+                if idx == state.dataset_cursor:
+                    d.rectangle((4, y - 1, CANVAS[0] - 4, y + 17), fill=CARD)
+                count = str(len(ds.catalog.visible()))
+                count_w = d.textlength(count, font=small)
+                mark = "*" if ds.name in state.dataset_selected else " "
+                name = _fit(d, f"{mark}{ds.name}", small, CANVAS[0] - 28 - count_w)
+                d.text((8, y), name, font=small, fill=fill)
+                d.text((CANVAS[0] - 8, y), count, font=small, fill=fill, anchor="ra")
+        y = 134
+        for key, action in DATASETS_MENU:
+            _hint(d, 8, y, key, action, small)
+            y += 20
+
+    elif state.screen is Screen.NEW_DATASET:
+        d.text((8, 26), "new dataset", font=title, fill=GREEN)
+        d.rectangle((4, 50, CANVAS[0] - 4, 72), fill=CARD)
+        d.text((8, 52), _fit(d, state.typed + "_", body, CANVAS[0] - 16, keep_end=True), font=body, fill=FG)
+        if state.status:
+            d.text((CANVAS[0] - 8, 28), state.status, font=small, fill=AMBER, anchor="ra")
+        key_w, key_h, top = CANVAS[0] // 10, 26, 78
+        for r, row in enumerate(KEYBOARD_ROWS):
+            for c, ch in enumerate(row):
+                x0, y0 = c * key_w, top + r * key_h
+                chosen = (r, c) == (state.key_row, state.key_col)
+                if chosen:
+                    d.rectangle((x0 + 1, y0 + 1, x0 + key_w - 2, y0 + key_h - 2), fill=GREEN)
+                d.text(
+                    (x0 + key_w // 2, y0 + key_h // 2), ch, font=body,
+                    fill=BG if chosen else FG, anchor="mm",
+                )
+        _hint(d, 8, 196, "Push", "type", small)
+        _hint(d, 124, 196, "Key2", "del", small)
+        _hint(d, 8, 216, "Key1", "create", small)
+        _hint(d, 124, 216, "Key3", "cancel", small)
+
+    elif state.screen is Screen.DATASET:
+        d.text((CANVAS[0] // 2, 28), _fit(d, state.dataset, title, CANVAS[0] - 16), font=title, fill=GREEN, anchor="mt")
         last = episodes[-1] if episodes else None
         if last is None:
             d.text((8, 54), "no episodes", font=body, fill=MUTED)
@@ -183,7 +248,7 @@ def render(
         if state.status:
             d.text((CANVAS[0] - 8, 76), state.status, font=small, fill=AMBER, anchor="ra")
         y = 108
-        for key, action in HOME_MENU:
+        for key, action in DATASET_MENU:
             _hint(d, 6, y, key, action, small)
             y += 28
 
@@ -235,7 +300,8 @@ def render(
         _hint(d, 8, 218, "Key3 / Left", "back", small)
 
     elif state.screen is Screen.CONFIRM_DELETE:
-        d.text((8, 40), "delete?", font=title, fill=RED)
+        prompt = "delete dataset?" if state.confirm_from is Screen.HOME else "delete?"
+        d.text((8, 40), prompt, font=title, fill=RED)
         for i, name in enumerate(state.pending_delete[:6]):
             d.text((8, 72 + i * 18), name, font=small, fill=FG)
         _hint(d, 8, 198, "Key2", "delete", small)

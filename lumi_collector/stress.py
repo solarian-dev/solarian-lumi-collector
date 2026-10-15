@@ -18,10 +18,13 @@ from pathlib import Path
 
 from lumi_collector.app import CollectorApp
 from lumi_collector.config import load_config
+from lumi_collector.datasets import create_dataset
 from lumi_collector.display import MockDisplay, St7735Display
 from lumi_collector.recorder import frame_gaps, frame_slots
+from lumi_collector.state import Screen
 
 TICK_S = 0.05
+STRESS_DATASET = "stress"
 
 
 def _run_for(app: CollectorApp, seconds: float) -> None:
@@ -52,6 +55,13 @@ def main(argv: list[str] | None = None) -> int:
     cfg = replace(cfg, data_dir=args.data_dir)
     display = MockDisplay() if args.mock else St7735Display(cfg.display, reset=False)
     app = CollectorApp(cfg, display, mock=args.mock)
+    dataset = next((d for d in app.datasets if d.name == STRESS_DATASET), None)
+    if dataset is None:
+        dataset = create_dataset(cfg.datasets_dir, STRESS_DATASET, app.serial)
+    app.dataset = dataset
+    app.state.dataset = dataset.name
+    app.state.screen = Screen.DATASET
+    before = len(dataset.catalog.episodes)
     app.power.open()
     try:
         for i in range(args.takes):
@@ -65,15 +75,16 @@ def main(argv: list[str] | None = None) -> int:
         display.close()
 
     dropped_total = 0
-    for episode in app.catalog.episodes:
-        sidecar = (cfg.raw_videos_dir / episode.filename).with_suffix(".imu.json")
+    episodes = dataset.catalog.episodes[before:]
+    for episode in episodes:
+        sidecar = (dataset.raw_videos_dir / episode.filename).with_suffix(".imu.json")
         frames = [f["t_s"] for f in json.loads(sidecar.read_text())["1"]["frames"]]
         gaps = frame_gaps(frame_slots(frames, cfg.video.fps))
         dropped = sum(g["missing"] for g in gaps)
         dropped_total += dropped
         where = ", ".join(f"{g['missing']} after frame {g['after_frame']}" for g in gaps)
         print(f"{episode.filename}: {len(frames)} frames, {dropped} dropped{': ' + where if where else ''}")
-    unsaved = args.takes - len(app.catalog.episodes)
+    unsaved = args.takes - len(episodes)
     print(f"{args.takes} takes, {unsaved} not saved, {dropped_total} frames dropped")
     return 1 if dropped_total or unsaved else 0
 

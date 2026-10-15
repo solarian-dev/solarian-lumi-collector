@@ -138,7 +138,7 @@ def main() -> None:
     rounded(d, (420, 430, 450, 458), (30, 30, 34), radius=3)
     rounded(d, (178, 470, 210, 490), (30, 30, 34), radius=3)
     label(d, (315, 448), "Pi Zero 2 W", size=16, bold=True, fill=WHITE, anchor="mm")
-    label(d, (160, 508), "microSD  /home/pi/lumi/raw_videos", size=12, fill=MUTED)
+    label(d, (160, 508), "microSD  /home/pi/lumi/datasets", size=12, fill=MUTED)
     label(d, (160, 526), "Charge the UPS, not the Pi PWR jack", size=12, fill=MUTED)
 
     # CSI ribbon
@@ -258,7 +258,7 @@ def main() -> None:
             "lumi_collector/",
             "config/collector.yaml",
             "deploy/setup.sh",
-            "/home/pi/lumi/",
+            "/home/pi/lumi/datasets/<name>/",
             "  raw_videos/GX01NNNN.MP4",
             "  catalog.json",
         )
@@ -266,7 +266,7 @@ def main() -> None:
         label(d, (tree_x, tree_y + 20 + i * 16), line, size=12, fill=INK)
 
     # UI chips
-    chips = (("Home", "last clip + battery"), ("Recording", "KEY1 stop"), ("Library", "select / delete"), ("Settings", "setup URL"))
+    chips = (("Home", "datasets + counts"), ("Recording", "KEY1 stop"), ("Library", "select / delete"), ("Settings", "setup URL"))
     cy = 780
     for i, (title, sub) in enumerate(chips):
         x = sx + 20 + i * 180

@@ -5,7 +5,8 @@ import zipfile
 from pathlib import Path
 
 from lumi_collector.auth import PrimaryKeyClient
-from lumi_collector.catalog import Catalog, Episode
+from lumi_collector.catalog import Episode
+from lumi_collector.datasets import Dataset
 
 
 def zip_episodes(
@@ -39,19 +40,18 @@ def zip_episodes(
 
 def upload_selected(
     client: PrimaryKeyClient,
-    catalog: Catalog,
-    raw_videos: Path,
+    dataset: Dataset,
     work_dir: Path,
     filenames: list[str],
     *,
     project_id: str,
 ) -> dict:
-    chosen = [e for e in catalog.visible() if e.filename in set(filenames)]
+    chosen = [e for e in dataset.catalog.visible() if e.filename in set(filenames)]
     if not chosen:
         raise RuntimeError("no episodes selected")
     zip_path = work_dir / "upload.zarr.zip"
-    zip_episodes(raw_videos, chosen, zip_path, camera_serial=catalog.camera_serial)
-    name = f"lumi-{chosen[0].stem}-{chosen[-1].stem}"
+    zip_episodes(dataset.raw_videos_dir, chosen, zip_path, camera_serial=dataset.catalog.camera_serial)
+    name = f"lumi-{dataset.name}-{chosen[0].stem}-{chosen[-1].stem}"
     result = client.upload_zip(
         zip_path,
         project_id=project_id,

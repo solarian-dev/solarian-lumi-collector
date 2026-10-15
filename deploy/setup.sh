@@ -9,7 +9,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
-install -d -o pi -g pi /home/pi/lumi /home/pi/lumi/raw_videos /home/pi/lumi/work
+install -d -o pi -g pi /home/pi/lumi /home/pi/lumi/datasets /home/pi/lumi/work
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -74,4 +74,5 @@ smbpasswd -a pi
 echo
 echo "Reboot, then open http://<pi-ip>:8080 to sign in to PrimaryKey."
 echo "In Finder: Go → Connect to Server → smb://$(hostname).local"
-echo "KEY1 record, KEY2 delete last, KEY3 settings / hold 2s shutdown."
+echo "Home lists datasets: Right creates one, Push opens it, KEY1 records inside it."
+echo "KEY3 settings / back, hold 2s shutdown."
