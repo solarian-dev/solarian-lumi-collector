@@ -102,7 +102,7 @@ def main() -> None:
     label(
         d,
         (W / 2, 58),
-        "Off-the-shelf wrist recorder  ·  H.264 + silent AAC + GPMF IMU  ·  PrimaryKey / UMI SLAM",
+        "Off-the-shelf wrist recorder  ·  H.264 + silent AAC + GPMF IMU  ·  Solarian Base / UMI SLAM",
         size=14,
         fill=MUTED,
         anchor="mt",
@@ -155,7 +155,7 @@ def main() -> None:
 
     # Wi-Fi
     label(d, (500, 390), "Wi-Fi", size=12, bold=True, fill=CLOUD)
-    label(d, (500, 408), "PrimaryKey", size=12, fill=CLOUD)
+    label(d, (500, 408), "Solarian Base", size=12, fill=CLOUD)
     label(d, (500, 424), "setup :8080", size=11, fill=MUTED)
 
     # --- UPS ---
@@ -245,7 +245,7 @@ def main() -> None:
     arrow(d, mid("cat", "r"), mid("auth", "l"))
 
     rounded(d, (sx + 200, 500, sx + 500, 548), (236, 244, 255), radius=8, outline=CLOUD)
-    label(d, (sx + 350, 516), "GX010001.MP4  →  PrimaryKey project", size=13, bold=True, fill=BLUE, anchor="mm")
+    label(d, (sx + 350, 516), "GX010001.MP4  →  Solarian Base project", size=13, bold=True, fill=BLUE, anchor="mm")
     label(d, (sx + 350, 534), "POST /api/datasets/upload/   JWT from http://pi:8080", size=11, fill=MUTED, anchor="mm")
     arrow(d, mid("up", "b"), (sx + 350, 500))
 

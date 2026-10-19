@@ -6,8 +6,8 @@ import pytest
 from lumi_collector.policy_view import find_calibration
 
 
-def _camera_file(conf, name, serial):
-    path = conf / "cameras" / f"{name}.json"
+def _camera_file(cameras, name, serial):
+    path = cameras / f"{name}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"camera_serial": serial}))
     return path

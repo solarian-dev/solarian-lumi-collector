@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from lumi_collector.auth import PrimaryKeyClient, save_credentials
+from lumi_collector.auth import SolarianBaseClient, save_credentials
 from lumi_collector.config import CollectorConfig
 
 _PAGE = """<!doctype html>
@@ -21,7 +21,7 @@ _PAGE = """<!doctype html>
 <h1>LUMI collector</h1>
 <p class="{cls}">{message}</p>
 <form method="post">
- <label>PrimaryKey URL</label>
+ <label>Solarian Base URL</label>
  <input name="api_url" value="{api_url}">
  <label>Username</label>
  <input name="username" value="{username}" autocomplete="username">
@@ -48,12 +48,12 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         form = parse_qs(self.rfile.read(length).decode(), keep_blank_values=True)
-        api_url = (form.get("api_url") or [self.cfg.primarykey_url])[0].strip()
+        api_url = (form.get("api_url") or [self.cfg.solarian_base_url])[0].strip()
         username = (form.get("username") or [""])[0].strip()
         password = (form.get("password") or [""])[0]
         project_id = (form.get("project_id") or [""])[0].strip()
         try:
-            client = PrimaryKeyClient(api_url)
+            client = SolarianBaseClient(api_url)
             creds = client.login(username, password)
             projects = client.projects()
             if project_id:
@@ -77,7 +77,7 @@ class _Handler(BaseHTTPRequestHandler):
         html = _PAGE.format(
             message=message,
             cls=cls,
-            api_url=(creds.api_url if creds else self.cfg.primarykey_url),
+            api_url=(creds.api_url if creds else self.cfg.solarian_base_url),
             username=(creds.username if creds else ""),
             project_id=(creds.project_id if creds else ""),
             projects=projects,

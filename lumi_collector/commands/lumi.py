@@ -28,7 +28,7 @@ class LumiCommand(BaseCommand):
     cropped and masked like the UMI skill does. Use it to place the camera on
     the gripper. It needs solarian-umi-skill installed and a calibration from
     solarian umi-calibrate-lumi; run it from the project directory so
-    conf/cameras/<serial>.json is found.
+    conf/calibrations/cameras/<serial>.json is found.
 
     Requires ffmpeg (the ffplay binary) on this machine.
     """
@@ -36,7 +36,7 @@ class LumiCommand(BaseCommand):
     options = {
         "--stream": "Open the live view. The collector must be on Stream video.",
         "--policy": "Show the remapped, masked 224x224 policy image. s saves a PNG, q quits.",
-        "--calibration PATH": "Lumi calibration for --policy (default: the one conf/cameras/<serial>.json).",
+        "--calibration PATH": "Lumi calibration for --policy (default: the one conf/calibrations/cameras/<serial>.json).",
         "--host HOST": f"Collector hostname (default: {DEFAULT_STREAM_HOST}).",
         "--port PORT": f"Listener port (default: {DEFAULT_STREAM_PORT}).",
     }
@@ -44,7 +44,7 @@ class LumiCommand(BaseCommand):
         "solarian lumi --stream",
         "solarian lumi --stream --host lumi-collector.local",
         "solarian lumi --stream --policy",
-        "solarian lumi --stream --policy --calibration conf/cameras/LUMI07FC9785.json",
+        "solarian lumi --stream --policy --calibration conf/calibrations/cameras/LUMI07FC9785.json",
     )
 
     def handle(self, cfg) -> None:
@@ -52,9 +52,11 @@ class LumiCommand(BaseCommand):
         if not args.stream:
             raise SystemExit("pass --stream to open the live camera")
         if args.policy:
+            from solarian.core.conf_paths import cameras_dir
+
             from lumi_collector import policy_view
 
-            calibration = args.calibration or policy_view.find_calibration(Path.cwd() / "conf")
+            calibration = args.calibration or policy_view.find_calibration(cameras_dir())
             policy_view.run(args.host, args.port, calibration)
             return
         if shutil.which("ffplay") is None:

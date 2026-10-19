@@ -20,9 +20,8 @@ WINDOW = "LUMI policy view  [s save  q quit]"
 DISPLAY_SCALE = 3
 
 
-def find_calibration(conf_dir: Path) -> Path:
-    """The single ``cameras/<serial>.json`` in *conf_dir* whose serial matches its name."""
-    cameras = conf_dir / "cameras"
+def find_calibration(cameras: Path) -> Path:
+    """The single ``<serial>.json`` in *cameras* whose serial matches its name."""
     found = [
         path
         for path in sorted(cameras.glob("*.json"))

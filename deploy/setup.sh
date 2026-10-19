@@ -72,7 +72,7 @@ echo "Set the password Finder uses for smb://$(hostname).local (user pi)."
 smbpasswd -a pi
 
 echo
-echo "Reboot, then open http://<pi-ip>:8080 to sign in to PrimaryKey."
+echo "Reboot, then open http://<pi-ip>:8080 to sign in to Solarian Base."
 echo "In Finder: Go → Connect to Server → smb://$(hostname).local"
 echo "Home lists datasets: Right creates one, Push opens it, KEY1 records inside it."
 echo "KEY3 settings / back, hold 2s shutdown."

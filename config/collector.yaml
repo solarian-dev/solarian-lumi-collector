@@ -1,7 +1,7 @@
 # Handheld LUMI collector. Paths are on the Pi SD card.
 data_dir: /home/pi/lumi
 camera_serial: ""          # empty = derive from /proc/cpuinfo
-primarykey_url: https://app.primarykey.ai
+solarian_base_url: https://base.solarian.dev
 setup_port: 8080
 
 video:

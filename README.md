@@ -79,7 +79,7 @@ sudo reboot
 `lumi-collector.service`, and shares `/home/pi` over Samba. It asks for a
 password for that share, separate from the SSH login. See
 [Download files locally](#download-files-locally). After reboot, open
-`http://lumi-collector.local:8080` on a phone and sign into PrimaryKey.
+`http://lumi-collector.local:8080` on a phone and sign into Solarian Base.
 
 ```bash
 # headless check without the HAT / camera
@@ -147,7 +147,7 @@ cannot be deleted until the save finishes.
 
 
 Sign-in is not typed on the joystick. After boot, open
-`http://<pi-ip>:8080` on a phone and log into PrimaryKey. The JWT stays on the
+`http://<pi-ip>:8080` on a phone and log into Solarian Base. The JWT stays on the
 SD card.
 
 ## Check the picture
@@ -175,7 +175,7 @@ Each frame is remapped into GoPro Max Lens geometry with the camera's
 calibration, as `solarian umi-slam --camera lumi` remaps the recordings, then
 cropped to 224×224 with the gripper and mirror areas blacked out the way the
 UMI skill does. Run it from the project directory so
-`conf/cameras/<serial>.json` is found, or pass `--calibration` (a session's
+`conf/calibrations/cameras/<serial>.json` is found, or pass `--calibration` (a session's
 `camera_calibration.json` shows exactly what that session was trained on).
 `s` saves the 224×224 PNG, `q` quits. It needs `solarian-umi-skill` with its
 `slam` extra in the same environment.
@@ -263,10 +263,10 @@ the same units and rate; the samples are noisier.
 ## Cloud
 
 Selected episodes are zipped as `raw_videos/*.MP4` + `session.json` and POSTed
-to `POST /api/datasets/upload/` on the signed-in PrimaryKey project. Today that
+to `POST /api/datasets/upload/` on the signed-in Solarian Base project. Today that
 API only names `lerobot` and `zarr`; the collector sends `format=zarr` so the
 bytes are stored as an opaque zip on the project. The UMI SLAM pipeline still
-wants the MP4s on disk (`rsync` / download), not the PrimaryKey dataset viewer.
+wants the MP4s on disk (`rsync` / download), not the Solarian Base dataset viewer.
 
 ## Layout on the SD card
 

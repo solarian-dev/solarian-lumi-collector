@@ -4,7 +4,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from lumi_collector.auth import PrimaryKeyClient
+from lumi_collector.auth import SolarianBaseClient
 from lumi_collector.catalog import Episode
 from lumi_collector.datasets import Dataset
 
@@ -39,7 +39,7 @@ def zip_episodes(
 
 
 def upload_selected(
-    client: PrimaryKeyClient,
+    client: SolarianBaseClient,
     dataset: Dataset,
     work_dir: Path,
     filenames: list[str],

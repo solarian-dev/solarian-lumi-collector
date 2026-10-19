@@ -36,7 +36,7 @@ def clear_credentials(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
-class PrimaryKeyClient:
+class SolarianBaseClient:
     def __init__(self, api_url: str, creds: Credentials | None = None):
         self.api_url = api_url.rstrip("/")
         self.creds = creds
@@ -82,7 +82,7 @@ class PrimaryKeyClient:
     ) -> dict:
         """Store a raw LUMI session zip (UMI-compatible MP4s).
 
-        PrimaryKey's dataset API currently accepts ``lerobot`` or ``zarr``.
+        Solarian Base's dataset API currently accepts ``lerobot`` or ``zarr``.
         A zarr upload is stored as an opaque zip, which is how raw
         ``raw_videos/`` sessions land in the project until a dedicated
         ``umi`` format exists.

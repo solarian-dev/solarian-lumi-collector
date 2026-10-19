@@ -83,7 +83,7 @@ class PowerConfig:
 class CollectorConfig:
     data_dir: Path = Path("/home/pi/lumi")
     camera_serial: str = ""
-    primarykey_url: str = "https://app.primarykey.ai"
+    solarian_base_url: str = "https://base.solarian.dev"
     setup_port: int = 8080
     video: VideoConfig = field(default_factory=VideoConfig)
     imu: ImuConfig = field(default_factory=ImuConfig)
@@ -130,7 +130,7 @@ def load_config(path: Path | None = None) -> CollectorConfig:
     return CollectorConfig(
         data_dir=Path(raw.get("data_dir") or "/home/pi/lumi"),
         camera_serial=str(raw.get("camera_serial") or ""),
-        primarykey_url=str(raw.get("primarykey_url") or "https://app.primarykey.ai").rstrip("/"),
+        solarian_base_url=str(raw.get("solarian_base_url") or "https://base.solarian.dev").rstrip("/"),
         setup_port=int(raw.get("setup_port") or 8080),
         video=VideoConfig(
             width=int(video_raw.get("width") or 1440),

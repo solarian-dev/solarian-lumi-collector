@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from lumi_collector.auth import PrimaryKeyClient, load_credentials
+from lumi_collector.auth import SolarianBaseClient, load_credentials
 from lumi_collector.buttons import ButtonSource, GpioButtons
 from lumi_collector.catalog import mark_deleted, mark_uploaded, save_catalog
 from lumi_collector.config import CollectorConfig, resolve_camera_serial
@@ -222,7 +222,7 @@ class CollectorApp:
         try:
             if creds is None or not creds.project_id:
                 raise RuntimeError("sign in at setup page")
-            client = PrimaryKeyClient(creds.api_url, creds)
+            client = SolarianBaseClient(creds.api_url, creds)
             upload_selected(
                 client,
                 dataset,
