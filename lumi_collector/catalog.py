@@ -27,6 +27,9 @@ class Catalog:
     camera_serial: str
     next_index: int
     episodes: list[Episode]
+    # Filenames of the session's mapping and gripper calibration takes; "" is unmarked.
+    mapping: str = ""
+    gripper_calibration: str = ""
 
     def visible(self) -> list[Episode]:
         return [e for e in self.episodes if not e.deleted]
@@ -53,6 +56,8 @@ def load_catalog(path: Path, camera_serial: str) -> Catalog:
         camera_serial=str(raw.get("camera_serial") or camera_serial),
         next_index=int(raw.get("next_index") or 1),
         episodes=episodes,
+        mapping=str(raw.get("mapping") or ""),
+        gripper_calibration=str(raw.get("gripper_calibration") or ""),
     )
 
 
@@ -61,6 +66,8 @@ def save_catalog(path: Path, catalog: Catalog) -> None:
     payload = {
         "camera_serial": catalog.camera_serial,
         "next_index": catalog.next_index,
+        "mapping": catalog.mapping,
+        "gripper_calibration": catalog.gripper_calibration,
         "episodes": [asdict(e) for e in catalog.episodes],
     }
     tmp = path.with_suffix(".json.tmp")
@@ -99,6 +106,10 @@ def mark_deleted(catalog: Catalog, filename: str) -> Episode | None:
     for episode in catalog.episodes:
         if episode.filename == filename and not episode.deleted:
             episode.deleted = True
+            if catalog.mapping == filename:
+                catalog.mapping = ""
+            if catalog.gripper_calibration == filename:
+                catalog.gripper_calibration = ""
             return episode
     return None
 

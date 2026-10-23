@@ -9,7 +9,6 @@ from lumi_collector.catalog import (
     next_gopro_name,
     save_catalog,
 )
-from lumi_collector.upload import zip_episodes
 
 
 def test_gopro_filenames_and_roundtrip(tmp_path: Path):
@@ -33,18 +32,3 @@ def test_delete_hides_and_upload_flags(tmp_path: Path):
     assert [e.filename for e in cat.visible()] == ["GX010002.MP4"]
     mark_uploaded(cat, ["GX010002.MP4"])
     assert cat.visible()[0].uploaded is True
-
-
-def test_zip_layout(tmp_path: Path):
-    raw = tmp_path / "raw_videos"
-    raw.mkdir()
-    (raw / "GX010001.MP4").write_bytes(b"mp4")
-    cat = empty_catalog("UMI1")
-    ep = add_episode(cat, filename="GX010001.MP4", duration_s=3.5, size_bytes=3)
-    zpath = zip_episodes(raw, [ep], tmp_path / "out.zip", camera_serial="UMI1")
-    import zipfile
-
-    with zipfile.ZipFile(zpath) as zf:
-        names = set(zf.namelist())
-    assert "session.json" in names
-    assert "raw_videos/GX010001.MP4" in names

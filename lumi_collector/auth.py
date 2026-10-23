@@ -80,21 +80,19 @@ class SolarianBaseClient:
         name: str,
         description: str = "",
     ) -> dict:
-        """Store a raw LUMI session zip (UMI-compatible MP4s).
+        """Store a ``.lumi.zip`` (see :mod:`lumi_collector.archive`) as a raw lumi dataset.
 
-        Solarian Base's dataset API currently accepts ``lerobot`` or ``zarr``.
-        A zarr upload is stored as an opaque zip, which is how raw
-        ``raw_videos/`` sessions land in the project until a dedicated
-        ``umi`` format exists.
+        Base identifies the format from the archive's entries; the declared
+        format is only a hint.
         """
         if self.creds is None:
             raise RuntimeError("not logged in")
         boundary = f"----umi{int(time.time() * 1000)}"
-        file_name = zip_path.name if zip_path.name.endswith(".zarr.zip") else f"{zip_path.stem}.zarr.zip"
+        file_name = zip_path.name
         fields = {
             "name": name,
             "description": description,
-            "format": "zarr",
+            "format": "lumi",
             "project_id": project_id,
         }
         body = bytearray()

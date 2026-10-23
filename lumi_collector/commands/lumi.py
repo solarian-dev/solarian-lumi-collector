@@ -1,4 +1,4 @@
-"""``solarian lumi --stream`` — play the collector's live camera."""
+"""``solarian lumi --stream`` — play the collector's live camera; ``solarian lumi pack`` — make a .lumi.zip."""
 
 from __future__ import annotations
 
@@ -15,11 +15,16 @@ from lumi_collector.stream import DEFAULT_STREAM_HOST, DEFAULT_STREAM_PORT, ffpl
 
 @CommandRegistry.register("lumi")
 class LumiCommand(BaseCommand):
-    help = "Play the LUMI collector's live camera stream."
+    help = "Play the LUMI collector's live camera stream, or pack a dataset into a .lumi.zip."
     category = "Utilities"
     uses_config = False
     description = """
-    The collector must be on its Stream video screen, which listens with
+    pack zips a collector dataset folder (catalog.json + raw_videos/ with the
+    MP4s and their .imu.json sidecars, and camera_calibration.json if present)
+    into <name>.lumi.zip. Deleted episodes are left out. Solarian Base uploads
+    and solarian umi-slam both take this file.
+
+    --stream: the collector must be on its Stream video screen, which listens with
     rpicam-vid. This opens that H.264 stream in ffplay so you can check the
     picture and adjust the lens.
 
@@ -32,8 +37,11 @@ class LumiCommand(BaseCommand):
 
     Requires ffmpeg (the ffplay binary) on this machine.
     """
-    usage = "--stream [--policy [--calibration PATH]] [--host HOST] [--port PORT]"
+    usage = ("--stream [--policy [--calibration PATH]] [--host HOST] [--port PORT]\n"
+             "       pack <dataset_dir> [--output PATH]")
     options = {
+        "pack <dataset_dir>": "Zip a collector dataset folder into a .lumi.zip.",
+        "--output PATH": "With pack: the archive path (default: <dataset_dir>/../<name>.lumi.zip).",
         "--stream": "Open the live view. The collector must be on Stream video.",
         "--policy": "Show the remapped, masked 224x224 policy image. s saves a PNG, q quits.",
         "--calibration PATH": "Lumi calibration for --policy (default: the one conf/calibrations/cameras/<serial>.json).",
@@ -45,9 +53,13 @@ class LumiCommand(BaseCommand):
         "solarian lumi --stream --host lumi-collector.local",
         "solarian lumi --stream --policy",
         "solarian lumi --stream --policy --calibration conf/calibrations/cameras/LUMI07FC9785.json",
+        "solarian lumi pack ~/lumi/datasets/cups",
     )
 
     def handle(self, cfg) -> None:
+        if sys.argv[2:3] == ["pack"]:
+            _pack(sys.argv[3:])
+            return
         args = _parse_args()
         if not args.stream:
             raise SystemExit("pass --stream to open the live camera")
@@ -62,6 +74,22 @@ class LumiCommand(BaseCommand):
         if shutil.which("ffplay") is None:
             raise SystemExit("ffplay not found; install ffmpeg")
         os.execvp("ffplay", ffplay_argv(args.host, args.port))
+
+
+def _pack(argv: list[str]) -> None:
+    from lumi_collector import archive
+    from lumi_collector.datasets import load_dataset
+
+    parser = argparse.ArgumentParser(prog="solarian lumi pack")
+    parser.add_argument("dataset_dir", type=Path)
+    parser.add_argument("--output", "-o", type=Path, default=None)
+    args = parser.parse_args(argv)
+    root = args.dataset_dir.expanduser().resolve()
+    if not (root / "catalog.json").is_file():
+        raise SystemExit(f"{root} is not a collector dataset: no catalog.json")
+    dataset = load_dataset(root, camera_serial="")
+    dest = archive.pack(dataset, args.output.expanduser() if args.output else archive.default_path(dataset))
+    print(dest)
 
 
 def _parse_args() -> argparse.Namespace:

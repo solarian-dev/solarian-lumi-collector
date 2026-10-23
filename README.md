@@ -262,11 +262,28 @@ the same units and rate; the samples are noisier.
 
 ## Cloud
 
-Selected episodes are zipped as `raw_videos/*.MP4` + `session.json` and POSTed
-to `POST /api/datasets/upload/` on the signed-in Solarian Base project. Today that
-API only names `lerobot` and `zarr`; the collector sends `format=zarr` so the
-bytes are stored as an opaque zip on the project. The UMI SLAM pipeline still
-wants the MP4s on disk (`rsync` / download), not the Solarian Base dataset viewer.
+Selected episodes are packed into a `.lumi.zip` (below) and POSTed to
+`POST /api/datasets/upload/` on the signed-in Solarian Base project, where they
+open as a raw lumi dataset: playback of the videos, and **Generate Solarian
+Dataset**, which runs `solarian umi-slam` on the server.
+
+## The `.lumi.zip` archive
+
+`<name>.lumi.zip` is a dataset folder zipped with its layout at the root:
+
+```
+catalog.json                    only the packed episodes; deleted ones are left out
+raw_videos/GX010001.MP4
+raw_videos/GX010001.imu.json
+camera_calibration.json         if the dataset folder has one
+```
+
+Members are stored uncompressed. Make one from a copied dataset folder with
+
+```bash
+solarian lumi pack ~/lumi/datasets/cups        # writes ~/lumi/datasets/cups.lumi.zip
+solarian umi-slam ~/lumi/datasets/cups.lumi.zip   # writes cups.solarian.zip beside it
+```
 
 ## Layout on the SD card
 
