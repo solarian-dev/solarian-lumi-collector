@@ -348,3 +348,9 @@ smb://lumi-collector.local/pi
 ```
 
 Sign in as a registered user, name `pi`.
+
+## License
+
+[Apache License 2.0](LICENSE). Copyright 2026 PrimaryKey Inc. The vendor CAD models in `cad/models/` belong to their owners and are not covered by this license; see [NOTICE](NOTICE).
+
+Solarian and the Solarian logo are trademarks of PrimaryKey Inc. See the [trademark policy](https://github.com/solarian-dev/solarian/blob/main/TRADEMARKS.md).

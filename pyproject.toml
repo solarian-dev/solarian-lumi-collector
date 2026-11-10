@@ -3,9 +3,11 @@ name = "solarian-lumi-collector"
 version = "0.1.0"
 description = "LUMI handheld collector — light UMI, Raspberry Pi Zero 2 W"
 authors = [
-    {name = "Solarian Contributors", email = "solarian@example.com"}
+    {name = "Raul Garreta", email = "raul@solarian.dev"}
 ]
 readme = "README.md"
+license = {text = "Apache-2.0"}
+classifiers = ["License :: OSI Approved :: Apache Software License"]
 requires-python = ">=3.10"
 dependencies = [
     "av>=12.0.0",

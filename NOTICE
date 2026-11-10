@@ -1,0 +1,15 @@
+Solarian LUMI collector plugin
+Copyright 2026 PrimaryKey Inc.
+
+This product includes software developed by PrimaryKey Inc.
+
+
+Third-party assets
+==================
+
+cad/models/UPS HAT (C).step
+cad/models/ups_hat_c_3d.zip
+cad/models/bno055.step
+  Vendor CAD models of third-party hardware (the UPS HAT (C) power board and
+  a BNO055 IMU board). They belong to their respective owners and are not
+  covered by this license.
