@@ -5,6 +5,112 @@ file on the SD card is an MP4 with H.264, audio, and a `gpmd` IMU track so
 `[universal_manipulation_interface](https://github.com/real-stanford/universal_manipulation_interface)`
 `00_process_videos.py` → `01_extract_gopro_imu.py` can consume it unchanged.
 
+## Build your own
+
+![LUMI collector](docs/media/hero.png)
+
+Everything you need to build the collector: the parts to buy, the two parts
+to print, and an animated step-by-step [assembly guide](docs/assembly.md).
+
+| | |
+| --- | --- |
+| 🛒 [Sourcing parts](#sourcing-parts) | bill of materials with US and EU links |
+| 🖨️ [Printing the enclosure](#printing-the-enclosure) | settings, orientation, a ready-made plate |
+| 🔧 [Assembly guide](docs/assembly.md) | 9 steps, each with an animation ([full video](docs/media/assembly/assembly_full.mp4)) |
+| 📐 [STEP](STEP/solarian-lumi-enclosure.step) / [STL](STL/) | CAD of the enclosure and print-ready parts |
+
+The enclosure is designed in [Onshape](https://cad.onshape.com/documents/41a49b699bc79376fe79f90a/w/93a291c0f8792e38d9633c68/e/e796ce46563799df341ea524)
+("Rev C - Complete Electronics Assembly"). Only the front body and the rear
+lid are printed; everything else is bought.
+
+### Sourcing parts
+
+Prices are rough (November 2026) and per collector. Links point to a specific
+listing where we have one and to a store search otherwise, so check the
+listing matches the spec before you order.
+
+#### Electronics
+
+| Part | Qty | ≈ Price | Buy (US) | Buy (EU) |
+| --- | --- | --- | --- | --- |
+| **Raspberry Pi Zero 2 W with header** (Zero 2 WH)<sup>1</sup> | 1 | $18–21 | [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/) · [Amazon](https://www.amazon.com/s?k=Raspberry+Pi+Zero+2+WH) | [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/) · [Amazon.de](https://www.amazon.de/s?k=Raspberry+Pi+Zero+2+WH) |
+| microSD card, 16 GB or larger, A1 | 1 | $8 | [Amazon](https://www.amazon.com/s?k=microSD+16GB+A1) | [Amazon.de](https://www.amazon.de/s?k=microSD+16GB+A1) |
+| Raspberry Pi High Quality Camera (IMX477, C/CS mount) | 1 | $50 | [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-high-quality-camera/) · [Amazon](https://www.amazon.com/s?k=Raspberry+Pi+High+Quality+Camera) | [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-high-quality-camera/) · [Amazon.de](https://www.amazon.de/s?k=Raspberry+Pi+High+Quality+Camera) |
+| Arducam LN031 180° M12 fisheye, with its CS-to-M12 adapter<sup>2</sup> | 1 | see listing | [Amazon](https://www.amazon.com/s?k=Arducam+LN031+180+fisheye+M12+HQ+camera) | [Amazon.de](https://www.amazon.de/s?k=Arducam+LN031+Fisheye+M12) |
+| Pi Zero camera cable, 22-pin → 15-pin, ≈ 15 cm | 1 | $5 | [Amazon](https://www.amazon.com/s?k=Raspberry+Pi+Zero+camera+cable+22+pin+15+pin) | [Amazon.de](https://www.amazon.de/s?k=Raspberry+Pi+Zero+Kamerakabel+22+15+Pin) |
+| Waveshare 1.44" LCD HAT (ST7735S, 128×128) | 1 | $12 | [Waveshare](https://www.waveshare.com/1.44inch-lcd-hat.htm) · [Amazon](https://www.amazon.com/s?k=Waveshare+1.44inch+LCD+HAT) | [RobotShop EU](https://eu.robotshop.com/products/waveshare-144-lcd-display-hat-for-raspberry-pi-128x128) · [Amazon.de](https://www.amazon.de/s?k=Waveshare+1.44inch+LCD+HAT) |
+| Waveshare UPS HAT (C) for Pi Zero, with 1000 mAh LiPo<sup>3</sup> | 1 | $22–28 | [Waveshare](https://www.waveshare.com/product/raspberry-pi/hats/interface-power/ups-hat-c.htm) · [RobotShop](https://www.robotshop.com/products/waveshare-uninterruptible-5v-power-supply-ups-hat-for-raspberry-pi-zero) | [Waveshare](https://www.waveshare.com/product/raspberry-pi/hats/interface-power/ups-hat-c.htm) · [Amazon.de](https://www.amazon.de/s?k=Waveshare+UPS+HAT+C+Pi+Zero) |
+| HiLetgo GY-521 MPU-6050 IMU board | 1 | $3–4 | [Amazon](https://a.co/d/07B4Yt1c) | [Amazon.de](https://www.amazon.de/s?k=GY-521+MPU-6050) |
+| Thin hook-up wire, ≈ 10 cm (IMU → header) | 4 | — | [Amazon](https://www.amazon.com/s?k=30+AWG+silicone+wire) | [Amazon.de](https://www.amazon.de/s?k=Silikon+Litze+30+AWG) |
+
+#### Fasteners
+
+| Fastener | Qty | Where |
+| --- | --- | --- |
+| M2.5 male-female hex standoff, 4 mm + 4 mm stud | 4 | front bosses → UPS HAT |
+| M2.5 female-female hex standoff, 10 mm | 4 | UPS HAT → Pi |
+| M2.5 male-female hex standoff, 10 mm + 4 mm stud<sup>4</sup> | 4 | Pi → LCD HAT |
+| M2.5×5 pan head screw | 8 | front face → standoffs (4), LCD HAT → standoffs (4) |
+| M2×4 pan head screw | 4 | HQ camera → front body |
+| M2×8 pan head self-tapping screw | 4 | lid → corner posts |
+
+| Kit | ≈ Price | Buy (US) | Buy (EU) |
+| --- | --- | --- | --- |
+| M2.5 brass standoff + screw assortment | $10 | [Amazon](https://www.amazon.com/s?k=M2.5+brass+standoff+screw+kit) | [Amazon.de](https://www.amazon.de/s?k=M2.5+Abstandsbolzen+Messing+Set) |
+| M2 screw assortment (machine + self-tapping) | $8 | [Amazon](https://www.amazon.com/s?k=M2+self+tapping+screw+assortment) | [Amazon.de](https://www.amazon.de/s?k=M2+Blechschrauben+Sortiment) |
+| PLA+ or PETG filament (≈ 60 g) | $2 | [Amazon](https://www.amazon.com/s?k=PLA%2B+filament+1.75mm) | [Amazon.de](https://www.amazon.de/s?k=PLA%2B+Filament+1%2C75) |
+
+**Total:** about **$140** plus the lens.
+
+**Tools:** a small Phillips screwdriver (#0), a 5 mm nut driver or small
+pliers for the standoffs, a soldering iron and a 5 mm drill bit.
+
+<sup>1</sup> The LCD HAT plugs onto the header, and the UPS HAT's pogo pins
+reach the pads under the Pi. Don't use the original Pi Zero.<br>
+<sup>2</sup> Any 1/2.3" M12 lens fits the adapter; the calibration and the
+UMI pipeline assume the 180° fisheye.<br>
+<sup>3</sup> The battery comes with the HAT. Its INA219 fuel gauge sits at
+I2C `0x43`.<br>
+<sup>4</sup> A 10 mm + 6 mm one from a standoff kit also fits.
+
+### Printing the enclosure
+
+![Print plate](docs/media/plate.png)
+
+| | |
+| --- | --- |
+| Printer | any FDM printer; the plate is 150 × 72 mm and the body 38 mm tall |
+| Material | PLA+ or PETG (PETG if it will sit in a hot car or the sun) |
+| Nozzle / layer | 0.4 mm / 0.2 mm |
+| Walls / infill | 3 walls, 25 % gyroid |
+| Supports | none |
+
+Both STLs are already **rotated into their print orientation**: print the
+plate [`STL/Plates/lumi_enclosure_plate_220x220.stl`](STL/Plates/lumi_enclosure_plate_220x220.stl),
+or the parts in [`STL/Individual`](STL/Individual):
+
+| Part | Qty | Supports | Notes |
+| --- | --- | --- | --- |
+| [`front_body.stl`](STL/Individual/front_body.stl) | 1 | no | front face down; only short bridges over the port openings |
+| [`rear_lid.stl`](STL/Individual/rear_lid.stl) | 1 | no | inside face down |
+
+Print the lid first (≈ 20 minutes) and lay it on the LCD HAT: the three
+buttons and the joystick should come through their openings. Before
+assembling, open the four counterbores in the front face with a 5 mm drill
+(step 4 of the guide).
+
+### Assembly
+
+Follow the [assembly guide](docs/assembly.md): 9 short steps, each with an
+animation rendered from the CAD. The whole build as one video:
+[`assembly_full.mp4`](docs/media/assembly/assembly_full.mp4).
+
+![The finished collector](docs/media/assembly/10_done.webp)
+
+The animations, print orientations and plate are generated from the Onshape
+assembly by [`tools/assembly_render`](tools/assembly_render/README.md), so they
+can be regenerated whenever the CAD changes.
+
 ## OS
 
 **[Raspberry Pi OS Lite 64-bit (Trixie)](https://www.raspberrypi.com/software/operating-systems/)** — no desktop.
@@ -58,7 +164,7 @@ Imager decompresses the xz; you do not unpack it first.
 
 ### First boot, then this repo
 
-Seat the card in the Zero 2 W, power the UPS-Lite, wait ~60 s, then from a
+Seat the card in the Zero 2 W, switch on the UPS HAT, wait ~60 s, then from a
 computer on the same Wi-Fi:
 
 ```bash
@@ -94,15 +200,16 @@ password for that share, separate from the SSH login. See
 | Role           | Part                                     | Notes                                            |
 | -------------- | ---------------------------------------- | ------------------------------------------------ |
 | Compute        | Raspberry Pi Zero 2 W **with header**    | CSI-2, 802.11n, hardware H.264                   |
-| Camera         | Arducam IMX477 HQ + CS fisheye           | Same sensor you already run on the robot         |
+| Camera         | Raspberry Pi HQ Camera (IMX477) + Arducam LN031 180° M12 fisheye | Same sensor you already run on the robot |
 | Display / keys | [Waveshare 1.44" LCD HAT](https://www.waveshare.com/wiki/1.44inch_LCD_HAT) (ST7735S, 128×128) | 3 buttons + joystick |
 | IMU            | [HiLetgo GY-521 MPU-6050](https://a.co/d/07B4Yt1c) @ 200 Hz | 6-axis, I2C `0x68`. Noisier than a Hero BMI260 |
-| Power          | UPS-Lite 1000 mAh (pogo, underside)      | Charge on the UPS micro-USB, not the Pi PWR jack |
+| Power          | [Waveshare UPS HAT (C)](https://www.waveshare.com/product/raspberry-pi/hats/interface-power/ups-hat-c.htm) + 1000 mAh LiPo (pogo, underside) | Charge on the UPS micro-USB, not the Pi PWR jack |
 
 
-Stack, bottom to top: **UPS-Lite → Zero 2 W → LCD HAT**. The camera hangs off
-the **22-pin** CSI flex (Pi Zero is not the 15-pin Pi 4 cable). Tap I2C for the
-IMU from a 40-pin **stacking header** — the LCD HAT covers the GPIO otherwise.
+Stack, front to back: **UPS HAT (C) → Zero 2 W → LCD HAT**, on M2.5 standoffs
+(see the [assembly guide](docs/assembly.md)). The camera hangs off
+the **22-pin** CSI flex (Pi Zero is not the 15-pin Pi 4 cable). The LCD HAT
+covers the GPIO, so solder the IMU wires to the underside of the header pins.
 
 ```
 GY-521  VCC → header 3V3 (pin 1)
@@ -177,7 +284,7 @@ cropped to 224×224 with the gripper and mirror areas blacked out the way the
 UMI skill does. Run it from the project directory so
 `conf/calibrations/cameras/<serial>.json` is found, or pass `--calibration` (a session's
 `camera_calibration.json` shows exactly what that session was trained on).
-`s` saves the 224×224 PNG, `q` quits. It needs `solarian-umi-skill` with its
+`s` saves the 224×224 PNG, `q` quits. It needs `solarian-umi` with its
 `slam` extra in the same environment.
 
 ## What "same as a Hero 10" means

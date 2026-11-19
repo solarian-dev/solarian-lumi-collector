@@ -13,3 +13,10 @@ cad/models/bno055.step
   Vendor CAD models of third-party hardware (the UPS HAT (C) power board and
   a BNO055 IMU board). They belong to their respective owners and are not
   covered by this license.
+
+docs/media/
+  Renders of the assembled collector. Besides the enclosure, they show
+  third-party board and component models (Raspberry Pi Zero 2 W and HQ Camera,
+  Waveshare UPS HAT (C) and 1.44inch LCD HAT, HiLetgo GY-521, Arducam lens
+  and adapter, hex standoffs and screws) from the Onshape assembly; those
+  models belong to their respective owners.

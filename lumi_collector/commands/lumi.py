@@ -31,7 +31,7 @@ class LumiCommand(BaseCommand):
     --policy shows the 224x224 image the policy would get instead: the frame
     remapped into GoPro Max Lens geometry with the camera's calibration, then
     cropped and masked like the UMI skill does. Use it to place the camera on
-    the gripper. It needs solarian-umi-skill installed and a calibration from
+    the gripper. It needs solarian-umi installed and a calibration from
     solarian umi-calibrate-lumi; run it from the project directory so
     conf/calibrations/cameras/<serial>.json is found.
 

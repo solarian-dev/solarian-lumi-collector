@@ -1,0 +1,11 @@
+data/
+frames/
+stills/
+_titled/
+shots_*.json
+stills.json
+steps.json
+orient.json
+__pycache__/
+node_modules/
+cad/

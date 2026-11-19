@@ -32,8 +32,8 @@ def test_several_cameras_need_a_choice(tmp_path):
 
 
 def test_policy_image_is_masked_224(tmp_path):
-    pytest.importorskip("solarian_umi_skill.slam.remap_video")
-    from solarian_umi_skill.slam.fisheye_model import Fisheye
+    pytest.importorskip("solarian_umi.slam.remap_video")
+    from solarian_umi.slam.fisheye_model import Fisheye
 
     from lumi_collector.policy_view import policy_pipeline
 

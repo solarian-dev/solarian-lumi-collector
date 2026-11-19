@@ -6,7 +6,7 @@ center-cropped to 224x224 with the gripper and mirror areas blacked out by
 the same pipeline the UMI skill feeds its policy. ArUco tags are not
 inpainted, as they are in training.
 
-Runs on the workstation; needs ``solarian-umi-skill`` installed alongside.
+Runs on the workstation; needs ``solarian-umi`` installed alongside.
 """
 
 from __future__ import annotations
@@ -40,11 +40,11 @@ def find_calibration(cameras: Path) -> Path:
 
 def policy_pipeline(calibration: Path, size: tuple[int, int]):
     """A function from a native Lumi frame of *size* (width, height) to the policy image."""
-    from solarian_umi_skill.slam.camera_calibration import load_native_model
-    from solarian_umi_skill.slam.fisheye_model import build_remap
-    from solarian_umi_skill.slam.remap_video import gopro_target
-    from solarian_umi_skill.slam.run import calibration_dir
-    from solarian_umi_skill.umi.policy_image import PolicyImagePipeline
+    from solarian_umi.slam.camera_calibration import load_native_model
+    from solarian_umi.slam.fisheye_model import build_remap
+    from solarian_umi.slam.remap_video import gopro_target
+    from solarian_umi.slam.run import calibration_dir
+    from solarian_umi.umi.policy_image import PolicyImagePipeline
 
     native = load_native_model(calibration).resized(*size)
     remap = build_remap(native, gopro_target(calibration_dir() / "gopro_intrinsics_2_7k.json"))
@@ -54,9 +54,9 @@ def policy_pipeline(calibration: Path, size: tuple[int, int]):
 
 def run(host: str, port: int, calibration: Path) -> None:
     try:
-        from solarian_umi_skill.slam.live_calibration import LumiStream
+        from solarian_umi.slam.live_calibration import LumiStream
     except ImportError as exc:
-        raise SystemExit(f"--policy needs solarian-umi-skill with its slam extra installed ({exc})") from exc
+        raise SystemExit(f"--policy needs solarian-umi with its slam extra installed ({exc})") from exc
     import cv2
 
     stream = LumiStream(host, port)
